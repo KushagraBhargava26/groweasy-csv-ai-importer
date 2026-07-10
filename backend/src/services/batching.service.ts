@@ -1,5 +1,5 @@
-import { RawCsvRow } from "../types/crm-record";
-import { logger } from "../utils/logger";
+import { RawCsvRow } from "../src/types/crm-record";
+import { logger } from "../src/utils/logger";
 
 // Rows per Gemini call. Chosen as a balance: small enough that the model
 // doesn't start dropping/merging rows in a long response, large enough
