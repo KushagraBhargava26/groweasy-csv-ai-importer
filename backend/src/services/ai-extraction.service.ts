@@ -1,7 +1,7 @@
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { Batch } from "./batching.service";
 import { buildCrmExtractionPrompt } from "../prompts/crm-extraction.prompt";
 import { logger } from "../utils/logger";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 
 // Fails fast and loudly at startup if the key is missing, rather than
 // failing confusingly deep inside the first API call.
@@ -10,33 +10,41 @@ if (!apiKey) {
   throw new Error("GEMINI_API_KEY is not set in the environment (.env)");
 }
 
-const genAI = new GoogleGenerativeAI(apiKey);
+// NOTE: migrated from `@google/generative-ai` (now archived/deprecated by
+// Google as of Nov 30 2025) to `@google/genai`, the current unified SDK.
+// The old SDK predates Gemini 3.x and silently ignores config fields it
+// doesn't recognize — including thinkingConfig, which is why setting
+// thinkingLevel had no real effect and the model kept reasoning at an
+// unbounded default, leaking its internal thoughts into schema fields.
+const ai = new GoogleGenAI({ apiKey });
 
 // Describes the exact shape we want Gemini to return, field by field.
 // This is what makes the output reliable: Gemini's structured-output mode
 // constrains generation to match this schema, so we get a clean JSON array
 // back instead of prose we'd have to regex/parse out of markdown fences.
+// Note: the new SDK uses `Type` instead of the old `SchemaType` — same
+// concept, different import.
 const crmRecordSchema = {
-  type: SchemaType.ARRAY,
+  type: Type.ARRAY,
   items: {
-    type: SchemaType.OBJECT,
+    type: Type.OBJECT,
     properties: {
-      _row_id: { type: SchemaType.STRING },
-      created_at: { type: SchemaType.STRING },
-      name: { type: SchemaType.STRING },
-      email: { type: SchemaType.STRING },
-      country_code: { type: SchemaType.STRING },
-      mobile_without_country_code: { type: SchemaType.STRING },
-      company: { type: SchemaType.STRING },
-      city: { type: SchemaType.STRING },
-      state: { type: SchemaType.STRING },
-      country: { type: SchemaType.STRING },
-      lead_owner: { type: SchemaType.STRING },
-      crm_status: { type: SchemaType.STRING },
-      crm_note: { type: SchemaType.STRING },
-      data_source: { type: SchemaType.STRING },
-      possession_time: { type: SchemaType.STRING },
-      description: { type: SchemaType.STRING },
+      _row_id: { type: Type.STRING },
+      created_at: { type: Type.STRING },
+      name: { type: Type.STRING },
+      email: { type: Type.STRING },
+      country_code: { type: Type.STRING },
+      mobile_without_country_code: { type: Type.STRING },
+      company: { type: Type.STRING },
+      city: { type: Type.STRING },
+      state: { type: Type.STRING },
+      country: { type: Type.STRING },
+      lead_owner: { type: Type.STRING },
+      crm_status: { type: Type.STRING },
+      crm_note: { type: Type.STRING },
+      data_source: { type: Type.STRING },
+      possession_time: { type: Type.STRING },
+      description: { type: Type.STRING },
     },
     required: ["_row_id"],
   },
@@ -48,30 +56,8 @@ const crmRecordSchema = {
 // field blank when unsure, and validation.service.ts (next file) is
 // what actually guarantees only the allowed values reach the frontend.
 
-const model = genAI.getGenerativeModel({
-  model: "gemini-3.1-flash-lite",
-  systemInstruction: buildCrmExtractionPrompt(),
-  generationConfig: {
-    responseMimeType: "application/json",
-    responseSchema: crmRecordSchema,
-    thinkingConfig: {
-      // This is straightforward per-row field mapping, not complex multi-step
-      // reasoning — "low" is Google's documented sweet spot for high-volume,
-      // moderate-complexity extraction pipelines like this one. Leaving
-      // thinkingConfig unset lets Gemini 3.x default to a much higher thinking
-      // level, which is what caused the earlier bug: the model "reasoned" about
-      // the whole 5-row batch as a single unit and collapsed its answer into one
-      // record, repeated 5 times, instead of mapping each row independently.
-      thinkingLevel: "low",
-    },
-    // temperature intentionally left UNSET here. We previously pinned this to
-    // 0.1 assuming "mapping task, not creative, so force low variance" — that
-    // was the right instinct for older (2.x) models, but Gemini 3.x's own docs
-    // explicitly recommend NOT overriding temperature/top_p/top_k, since its
-    // reasoning behavior is tuned around the default values. Overriding it
-    // fights against how the model's internal reasoning was calibrated.
-  },
-});
+const MODEL_NAME = "gemini-3.1-flash-lite";
+const systemInstruction = buildCrmExtractionPrompt();
 
 export class AiExtractionError extends Error {
   constructor(
@@ -93,10 +79,29 @@ export async function extractBatch(batch: Batch): Promise<unknown[]> {
   const inputPayload = JSON.stringify(batch.rows);
 
   try {
-    const result = await model.generateContent(inputPayload);
-    const responseText = result.response.text();
+    const result = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: inputPayload,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: crmRecordSchema,
+        thinkingConfig: {
+          // Straightforward per-row field mapping, not complex multi-step
+          // reasoning — LOW is the documented sweet spot for high-volume,
+          // moderate-complexity extraction. This now actually takes effect,
+          // unlike under the old SDK.
+          thinkingLevel: ThinkingLevel.LOW,
+        },
+        // temperature intentionally left UNSET — Gemini 3.x docs recommend
+        // not overriding temperature/top_p/top_k, since its reasoning
+        // behavior is tuned around the defaults.
+      },
+    });
 
-    // TEMP DEBUG — remove once the thinkingLevel fix is confirmed working.
+    const responseText = result.text ?? "";
+
+    // TEMP DEBUG — remove once this migration is confirmed working.
     console.log("RAW AI RESPONSE:", responseText);
 
     let parsed: unknown;
