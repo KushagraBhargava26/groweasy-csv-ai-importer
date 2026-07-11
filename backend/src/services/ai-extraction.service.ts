@@ -1,5 +1,4 @@
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
-import { CrmRecord } from "../types/crm-record";
 import { Batch } from "./batching.service";
 import { buildCrmExtractionPrompt } from "../prompts/crm-extraction.prompt";
 import { logger } from "../utils/logger";
@@ -22,6 +21,7 @@ const crmRecordSchema = {
   items: {
     type: SchemaType.OBJECT,
     properties: {
+      _row_id: { type: SchemaType.STRING },
       created_at: { type: SchemaType.STRING },
       name: { type: SchemaType.STRING },
       email: { type: SchemaType.STRING },
@@ -38,14 +38,15 @@ const crmRecordSchema = {
       possession_time: { type: SchemaType.STRING },
       description: { type: SchemaType.STRING },
     },
-    // crm_status/data_source are plain STRING here, not a Gemini schema
-    // enum, on purpose: a strict schema enum can cause the whole batch to
-    // fail if the model can't confidently pick one. Treating them as free
-    // strings (constrained by the PROMPT instead) lets the model leave a
-    // field blank when unsure, and validation.service.ts (next file) is
-    // what actually guarantees only the allowed values reach the frontend.
+    required: ["_row_id"],
   },
 };
+// crm_status/data_source are plain STRING here, not a Gemini schema
+// enum, on purpose: a strict schema enum can cause the whole batch to
+// fail if the model can't confidently pick one. Treating them as free
+// strings (constrained by the PROMPT instead) lets the model leave a
+// field blank when unsure, and validation.service.ts (next file) is
+// what actually guarantees only the allowed values reach the frontend.
 
 const model = genAI.getGenerativeModel({
   model: "gemini-2.0-flash",
@@ -58,7 +59,10 @@ const model = genAI.getGenerativeModel({
 });
 
 export class AiExtractionError extends Error {
-  constructor(message: string, public readonly batchIndex: number) {
+  constructor(
+    message: string,
+    public readonly batchIndex: number,
+  ) {
     super(message);
     this.name = "AiExtractionError";
   }
@@ -70,7 +74,7 @@ export class AiExtractionError extends Error {
  * validation.service.ts's job, next. This function's only responsibility
  * is "call the model, get parsed JSON back."
  */
-export async function extractBatch(batch: Batch): Promise<CrmRecord[]> {
+export async function extractBatch(batch: Batch): Promise<unknown[]> {
   const inputPayload = JSON.stringify(batch.rows);
 
   try {
@@ -85,17 +89,11 @@ export async function extractBatch(batch: Batch): Promise<CrmRecord[]> {
         batchIndex: batch.batchIndex,
         rawResponse: responseText.slice(0, 500),
       });
-      throw new AiExtractionError(
-        `Batch ${batch.batchIndex}: model response was not valid JSON`,
-        batch.batchIndex
-      );
+      throw new AiExtractionError(`Batch ${batch.batchIndex}: model response was not valid JSON`, batch.batchIndex);
     }
 
     if (!Array.isArray(parsed)) {
-      throw new AiExtractionError(
-        `Batch ${batch.batchIndex}: expected a JSON array, got ${typeof parsed}`,
-        batch.batchIndex
-      );
+      throw new AiExtractionError(`Batch ${batch.batchIndex}: expected a JSON array, got ${typeof parsed}`, batch.batchIndex);
     }
 
     logger.info("Batch extracted successfully", {
@@ -104,7 +102,7 @@ export async function extractBatch(batch: Batch): Promise<CrmRecord[]> {
       outputRecords: parsed.length,
     });
 
-    return parsed as CrmRecord[];
+    return parsed;
   } catch (err) {
     if (err instanceof AiExtractionError) throw err;
 
@@ -113,10 +111,8 @@ export async function extractBatch(batch: Batch): Promise<CrmRecord[]> {
       error: err instanceof Error ? err.message : String(err),
     });
     throw new AiExtractionError(
-      `Batch ${batch.batchIndex}: Gemini API call failed — ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-      batch.batchIndex
+      `Batch ${batch.batchIndex}: Gemini API call failed — ${err instanceof Error ? err.message : String(err)}`,
+      batch.batchIndex,
     );
   }
 }

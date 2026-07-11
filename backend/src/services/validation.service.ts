@@ -8,19 +8,14 @@ import {
 } from "../types/crm-record";
 import { logger } from "../utils/logger";
 
-// Built directly from the same const arrays used in the type definitions
-// and the AI prompt — one source of truth, three consumers. If these lists
-// ever need a new status/source, updating crm-record.ts updates all three
-// automatically.
 const crmStatusEnum = z.enum(CRM_STATUS_VALUES);
 const dataSourceEnum = z.enum(DATA_SOURCE_VALUES);
 
-// The schema Gemini's raw output gets checked against. Every field is
-// optional/nullable-ish because the AI is instructed to leave unknown
-// fields as empty strings, not omit them — but we defend against both
-// cases (missing key vs empty string) since we don't fully control the
-// model's exact output shape.
+// _row_id is required: it's how we match this AI-returned record back to
+// the specific original row it came from, regardless of array position.
+// See crm-mapper.service.ts for why matching by position isn't safe.
 const crmRecordInputSchema = z.object({
+  _row_id: z.string(),
   created_at: z.string().optional().default(""),
   name: z.string().optional().default(""),
   email: z.string().optional().default(""),
@@ -41,15 +36,9 @@ const crmRecordInputSchema = z.object({
 export interface ValidationOutcome {
   kept: CrmRecord[];
   skipped: SkippedRow[];
+  unmatchedIds: string[];
 }
 
-/**
- * Checks a value against the created_at date rule from the spec:
- * "must be convertible using new Date(created_at)".
- * An empty string is allowed (means "unknown date"), but a non-empty
- * string that produces an Invalid Date is corrected to empty rather
- * than passed through broken.
- */
 function normalizeCreatedAt(value: string): string {
   if (!value || value.trim() === "") return "";
   const parsed = new Date(value);
@@ -60,12 +49,6 @@ function normalizeCreatedAt(value: string): string {
   return value;
 }
 
-/**
- * Re-checks crm_status against the whitelist. The AI is instructed to only
- * use these 4 values, but we never assume compliance — if it returns
- * anything else (a typo, a synonym, a hallucinated status), we blank it
- * rather than let an invalid value reach the frontend/CRM.
- */
 function normalizeCrmStatus(value: string): CrmRecord["crm_status"] {
   if (!value) return undefined;
   const result = crmStatusEnum.safeParse(value);
@@ -86,49 +69,55 @@ function normalizeDataSource(value: string): CrmRecord["data_source"] {
   return result.data;
 }
 
-/**
- * The hard skip rule from the spec: a record with neither email nor
- * mobile number must not be imported. The AI is instructed to already
- * apply this rule itself — but we enforce it again here as a backend
- * guarantee, since this rule has zero tolerance for exceptions.
- */
 function hasContactInfo(record: { email: string; mobile_without_country_code: string }): boolean {
   return record.email.trim().length > 0 || record.mobile_without_country_code.trim().length > 0;
 }
 
 /**
- * Validates and normalizes a batch of raw AI output against the CRM schema.
- * Takes the ORIGINAL rows too, purely so a skipped record can carry back
- * enough context (in `originalRow`) for the frontend to show the user
- * why something didn't import.
+ * Validates a batch of raw AI output records, matching each back to its
+ * original row via the `_row_id` the AI was instructed to echo. Any
+ * original row whose id never appears in the AI's output at all (not even
+ * as a broken record) comes back in `unmatchedIds`, so the orchestrator can
+ * account for it as skipped too — this is the expected path for rows the
+ * AI correctly omitted per the skip rule.
  */
 export function validateAiOutput(
   aiRecords: unknown[],
-  originalRows: RawCsvRow[]
+  rowById: Map<string, RawCsvRow>
 ): ValidationOutcome {
   const kept: CrmRecord[] = [];
   const skipped: SkippedRow[] = [];
+  const matchedIds = new Set<string>();
 
   aiRecords.forEach((raw, index) => {
     const parsed = crmRecordInputSchema.safeParse(raw);
 
     if (!parsed.success) {
+      const fallbackId =
+        typeof raw === "object" && raw !== null && "_row_id" in raw
+          ? String((raw as Record<string, unknown>)._row_id)
+          : undefined;
       logger.warn("AI record failed schema validation, skipping", {
         index,
+        fallbackId,
         issues: parsed.error.issues,
       });
+      const originalRow = fallbackId ? rowById.get(fallbackId) : undefined;
+      if (fallbackId) matchedIds.add(fallbackId);
       skipped.push({
-        originalRow: originalRows[index] ?? {},
+        originalRow: originalRow ?? {},
         reason: "AI output did not match expected record shape",
       });
       return;
     }
 
     const data = parsed.data;
+    matchedIds.add(data._row_id);
+    const originalRow = rowById.get(data._row_id) ?? {};
 
     if (!hasContactInfo(data)) {
       skipped.push({
-        originalRow: originalRows[index] ?? {},
+        originalRow,
         reason: "No email or mobile number found — record skipped per import rules",
       });
       return;
@@ -155,11 +144,14 @@ export function validateAiOutput(
     kept.push(record);
   });
 
+  const unmatchedIds = Array.from(rowById.keys()).filter((id) => !matchedIds.has(id));
+
   logger.info("Validation complete for batch", {
     inputCount: aiRecords.length,
     keptCount: kept.length,
     skippedCount: skipped.length,
+    unmatchedCount: unmatchedIds.length,
   });
 
-  return { kept, skipped };
+  return { kept, skipped, unmatchedIds };
 }
