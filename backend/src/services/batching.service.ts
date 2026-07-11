@@ -6,7 +6,7 @@ import { logger } from "../utils/logger";
 // that we're not making an excessive number of API calls for a big CSV.
 // Kept as a named constant (not buried inline) so it's the one place to
 // tune if testing shows accuracy dropping at this size.
-export const DEFAULT_BATCH_SIZE = 20;
+export const DEFAULT_BATCH_SIZE = 10;
 
 export interface Batch {
   batchIndex: number;
