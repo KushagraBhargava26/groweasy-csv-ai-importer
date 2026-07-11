@@ -157,10 +157,16 @@ export async function extractBatch(batch: Batch): Promise<unknown[]> {
     const errMessage = err instanceof Error ? err.message : String(err);
     const isQuotaError = errMessage.includes("RESOURCE_EXHAUSTED") || errMessage.includes("429");
 
+    // Log the FULL error object, not just .message — Google's error messages
+    // are often a generic outer wrapper ("Request contains an invalid
+    // argument") with the actual specific cause nested deeper (a details
+    // array, a field path, etc.) that .message alone doesn't surface.
     logger.error("Gemini API call failed", {
       batchIndex: batch.batchIndex,
       error: errMessage,
       isQuotaError,
+      fullError: JSON.stringify(err, Object.getOwnPropertyNames(err instanceof Error ? err : {})),
+      batchRowCount: batch.rows.length,
     });
     throw new AiExtractionError(
       `Batch ${batch.batchIndex}: Gemini API call failed — ${errMessage}`,

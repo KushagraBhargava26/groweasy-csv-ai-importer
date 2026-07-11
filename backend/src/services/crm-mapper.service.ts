@@ -70,6 +70,18 @@ async function extractBatchWithRetry(batch: Batch): Promise<unknown[]> {
         continue;
       }
 
+      const isBadRequest = err instanceof AiExtractionError && err.message.includes("400");
+
+      if (isBadRequest) {
+        // Per Google's own guidance: 400 is a client/request error, not a
+        // transient one — retrying identical input will never succeed.
+        // Fail this batch immediately instead of burning 3 identical attempts.
+        logger.error("Batch request rejected as invalid — not retrying", {
+          batchIndex: batch.batchIndex,
+        });
+        break;
+      }
+
       attempt++;
       logger.warn("Batch extraction attempt failed", {
         batchIndex: batch.batchIndex,
