@@ -13,20 +13,10 @@ const RETRY_BASE_DELAY_MS = 500;
 // flash-lite-class models) mean firing all batches simultaneously — e.g.
 // 50 batches for a 1000-row file — causes most of them to get rate-limited
 // immediately, fall through to retry-with-backoff, and only trickle through
-// as the rate-limit window rolls over. That's what stretched a 1000-row
-// import to 20+ minutes despite eventually succeeding 100%. Capping
-// concurrency keeps us comfortably under the limit instead of hammering it
-// and relying on brute-force retries to eventually get lucky.
+// as the rate-limit window rolls over. Capping concurrency keeps us
+// comfortably under the limit instead of relying on brute-force retries.
 const MAX_CONCURRENT_BATCHES = 4;
 
-/**
- * Tags every row with a stable, unique identifier before it goes anywhere
- * near the AI. This is the fix for the index-alignment problem: since the
- * AI is instructed to OMIT skipped rows from its output entirely (not mark
- * them), the AI's output array can never safely be matched back to the
- * input array by position. An explicit id the AI must echo back removes
- * that assumption completely.
- */
 function tagRowsWithId(rows: RawCsvRow[]): RawCsvRow[] {
   return rows.map((row, index) => ({
     ...row,
@@ -43,11 +33,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Wraps extractBatch with a simple retry-with-backoff. A single flaky
- * Gemini call (rate limit, transient network error) shouldn't mean every
- * row in that batch gets dropped from the import.
- */
 async function extractBatchWithRetry(batch: Batch): Promise<unknown[]> {
   let lastError: unknown;
 
@@ -73,16 +58,23 @@ async function extractBatchWithRetry(batch: Batch): Promise<unknown[]> {
 /**
  * Runs a list of async tasks with at most `limit` running concurrently,
  * preserving input order in the returned results (same contract as
- * Promise.allSettled, just throttled). Whenever a slot frees up, the next
- * queued task starts immediately — no idle gaps, never more than `limit`
- * in flight.
+ * Promise.allSettled, just throttled).
+ *
+ * onEachSettled fires after EVERY task settles — success or failure —
+ * with a running count. This is what powers the job-store's live progress
+ * (batchesCompleted / totalBatches), which the frontend polls to show
+ * "X of Y batches processed." Without this callback firing incrementally,
+ * the progress bar would just sit at 0% until the entire import finished,
+ * same as before.
  */
 async function runWithConcurrencyLimit<T>(
   tasks: (() => Promise<T>)[],
-  limit: number
+  limit: number,
+  onEachSettled?: (completedCount: number, total: number) => void
 ): Promise<PromiseSettledResult<T>[]> {
   const results: PromiseSettledResult<T>[] = new Array(tasks.length);
   let nextIndex = 0;
+  let completedCount = 0;
 
   async function worker(): Promise<void> {
     while (nextIndex < tasks.length) {
@@ -94,6 +86,8 @@ async function runWithConcurrencyLimit<T>(
       } catch (reason) {
         results[currentIndex] = { status: "rejected", reason };
       }
+      completedCount++;
+      onEachSettled?.(completedCount, tasks.length);
     }
   }
 
@@ -106,11 +100,14 @@ async function runWithConcurrencyLimit<T>(
 
 /**
  * The full pipeline: raw parsed CSV rows in, a complete ImportResult out.
- * This is the single function the controller layer calls.
+ * onProgress is optional — the background job runner (import.controller.ts)
+ * passes one in to update the job store as batches complete; a direct
+ * synchronous caller (e.g. a test) can simply omit it.
  */
 export async function runCrmImportPipeline(
   rawRows: RawCsvRow[],
-  batchSize: number = DEFAULT_BATCH_SIZE
+  batchSize: number = DEFAULT_BATCH_SIZE,
+  onProgress?: (batchesCompleted: number, totalBatches: number) => void
 ): Promise<ImportResult> {
   const taggedRows = tagRowsWithId(rawRows);
   const batches = createBatches(taggedRows, batchSize);
@@ -120,11 +117,10 @@ export async function runCrmImportPipeline(
   let batchesProcessed = 0;
   let batchesFailed = 0;
 
-  // Changed from Promise.allSettled(batches.map(...)) — that fired every
-  // batch at once. This runs at most MAX_CONCURRENT_BATCHES at a time.
   const results = await runWithConcurrencyLimit(
     batches.map((batch) => () => extractBatchWithRetry(batch)),
-    MAX_CONCURRENT_BATCHES
+    MAX_CONCURRENT_BATCHES,
+    onProgress
   );
 
   results.forEach((result, i) => {
