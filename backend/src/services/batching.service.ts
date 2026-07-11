@@ -1,5 +1,5 @@
-import { RawCsvRow } from "../src/types/crm-record";
-import { logger } from "../src/utils/logger";
+import { RawCsvRow } from "../types/crm-record";
+import { logger } from "../utils/logger";
 
 // Rows per Gemini call. Chosen as a balance: small enough that the model
 // doesn't start dropping/merging rows in a long response, large enough
@@ -18,10 +18,7 @@ export interface Batch {
  * Pure function — no I/O, no AI calls — so it's trivial to unit test
  * with plain arrays and assert on batch count/sizes.
  */
-export function createBatches(
-  rows: RawCsvRow[],
-  batchSize: number = DEFAULT_BATCH_SIZE
-): Batch[] {
+export function createBatches(rows: RawCsvRow[], batchSize: number = DEFAULT_BATCH_SIZE): Batch[] {
   if (batchSize <= 0) {
     throw new Error("batchSize must be a positive number");
   }
