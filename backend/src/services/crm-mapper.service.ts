@@ -1,12 +1,23 @@
 import { RawCsvRow, CrmRecord, SkippedRow, ImportResult } from "../types/crm-record";
 import { createBatches, DEFAULT_BATCH_SIZE, Batch } from "./batching.service";
-import { extractBatch, AiExtractionError } from "./ai-extraction.service";
+import { extractBatch } from "./ai-extraction.service";
 import { validateAiOutput } from "./validation.service";
 import { logger } from "../utils/logger";
 
 const ROW_ID_KEY = "_row_id";
 const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 500;
+
+// How many batches are allowed to be in flight against Gemini at once.
+// Free-tier Gemini rate limits (roughly 10-15 requests/minute for
+// flash-lite-class models) mean firing all batches simultaneously — e.g.
+// 50 batches for a 1000-row file — causes most of them to get rate-limited
+// immediately, fall through to retry-with-backoff, and only trickle through
+// as the rate-limit window rolls over. That's what stretched a 1000-row
+// import to 20+ minutes despite eventually succeeding 100%. Capping
+// concurrency keeps us comfortably under the limit instead of hammering it
+// and relying on brute-force retries to eventually get lucky.
+const MAX_CONCURRENT_BATCHES = 4;
 
 /**
  * Tags every row with a stable, unique identifier before it goes anywhere
@@ -37,59 +48,22 @@ function delay(ms: number): Promise<void> {
  * Gemini call (rate limit, transient network error) shouldn't mean every
  * row in that batch gets dropped from the import.
  */
-// Quota errors (429) are temporary and self-resolving — the correct
-// response is to wait it out and try again, not give up. Since this
-// runs as a background job with no request timeout to race against,
-// we can afford to retry quota errors patiently and for much longer
-// than genuine errors (malformed response, etc.), which DO deserve a
-// quick give-up since more time won't fix a real bug.
-const MAX_QUOTA_RETRIES = 8;
-const QUOTA_RETRY_DELAY_MS = 10_000;
-
 async function extractBatchWithRetry(batch: Batch): Promise<unknown[]> {
   let lastError: unknown;
-  let quotaAttempts = 0;
-  let attempt = 0;
 
-  while (true) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       return await extractBatch(batch);
     } catch (err) {
       lastError = err;
-      const isQuotaError = err instanceof AiExtractionError && err.kind === "QUOTA_EXCEEDED";
-
-      if (isQuotaError) {
-        quotaAttempts++;
-        if (quotaAttempts > MAX_QUOTA_RETRIES) break;
-        logger.warn("Batch hit quota limit, waiting before retry", {
-          batchIndex: batch.batchIndex,
-          quotaAttempt: quotaAttempts,
-          maxQuotaRetries: MAX_QUOTA_RETRIES,
-        });
-        await delay(QUOTA_RETRY_DELAY_MS);
-        continue;
-      }
-
-      const isBadRequest = err instanceof AiExtractionError && err.message.includes("400");
-
-      if (isBadRequest) {
-        // Per Google's own guidance: 400 is a client/request error, not a
-        // transient one — retrying identical input will never succeed.
-        // Fail this batch immediately instead of burning 3 identical attempts.
-        logger.error("Batch request rejected as invalid — not retrying", {
-          batchIndex: batch.batchIndex,
-        });
-        break;
-      }
-
-      attempt++;
       logger.warn("Batch extraction attempt failed", {
         batchIndex: batch.batchIndex,
-        attempt,
+        attempt: attempt + 1,
         maxRetries: MAX_RETRIES,
       });
-      if (attempt > MAX_RETRIES) break;
-      await delay(RETRY_BASE_DELAY_MS * attempt);
+      if (attempt < MAX_RETRIES) {
+        await delay(RETRY_BASE_DELAY_MS * (attempt + 1));
+      }
     }
   }
 
@@ -97,22 +71,46 @@ async function extractBatchWithRetry(batch: Batch): Promise<unknown[]> {
 }
 
 /**
+ * Runs a list of async tasks with at most `limit` running concurrently,
+ * preserving input order in the returned results (same contract as
+ * Promise.allSettled, just throttled). Whenever a slot frees up, the next
+ * queued task starts immediately — no idle gaps, never more than `limit`
+ * in flight.
+ */
+async function runWithConcurrencyLimit<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number
+): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = new Array(tasks.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < tasks.length) {
+      const currentIndex = nextIndex;
+      nextIndex++;
+      try {
+        const value = await tasks[currentIndex]();
+        results[currentIndex] = { status: "fulfilled", value };
+      } catch (reason) {
+        results[currentIndex] = { status: "rejected", reason };
+      }
+    }
+  }
+
+  const workerCount = Math.min(limit, tasks.length);
+  const workers = Array.from({ length: workerCount }, () => worker());
+  await Promise.all(workers);
+
+  return results;
+}
+
+/**
  * The full pipeline: raw parsed CSV rows in, a complete ImportResult out.
  * This is the single function the controller layer calls.
  */
-// Gemini's free tier caps at 15 requests/minute. Firing every batch
-// concurrently (the old Promise.allSettled approach) blows past that
-// almost immediately on anything but a tiny file. Processing batches
-// ONE AT A TIME with a fixed delay between calls keeps us safely under
-// the limit regardless of file size — the tradeoff is throughput
-// (~14 batches/minute) instead of speed, which is the right tradeoff
-// for staying on the free tier. See RATE_LIMIT_INTERVAL_MS below.
-const RATE_LIMIT_INTERVAL_MS = 4200; // ~14.3 requests/minute, safely under the 15 RPM cap
-
 export async function runCrmImportPipeline(
   rawRows: RawCsvRow[],
-  batchSize: number = DEFAULT_BATCH_SIZE,
-  onBatchComplete?: (batchesCompleted: number, totalBatches: number) => void,
+  batchSize: number = DEFAULT_BATCH_SIZE
 ): Promise<ImportResult> {
   const taggedRows = tagRowsWithId(rawRows);
   const batches = createBatches(taggedRows, batchSize);
@@ -122,17 +120,15 @@ export async function runCrmImportPipeline(
   let batchesProcessed = 0;
   let batchesFailed = 0;
 
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i];
+  // Changed from Promise.allSettled(batches.map(...)) — that fired every
+  // batch at once. This runs at most MAX_CONCURRENT_BATCHES at a time.
+  const results = await runWithConcurrencyLimit(
+    batches.map((batch) => () => extractBatchWithRetry(batch)),
+    MAX_CONCURRENT_BATCHES
+  );
 
-    const result = await (async () => {
-      try {
-        const value = await extractBatchWithRetry(batch);
-        return { status: "fulfilled" as const, value };
-      } catch (reason) {
-        return { status: "rejected" as const, reason };
-      }
-    })();
+  results.forEach((result, i) => {
+    const batch = batches[i];
 
     if (result.status === "rejected") {
       batchesFailed++;
@@ -146,7 +142,7 @@ export async function runCrmImportPipeline(
           reason: "AI extraction failed for this batch after retries",
         });
       });
-      continue;
+      return;
     }
 
     batchesProcessed++;
@@ -156,7 +152,10 @@ export async function runCrmImportPipeline(
       rowById.set(row[ROW_ID_KEY], stripRowId(row));
     });
 
-    const { kept, skipped: skippedInBatch, unmatchedIds } = validateAiOutput(result.value, rowById);
+    const { kept, skipped: skippedInBatch, unmatchedIds } = validateAiOutput(
+      result.value,
+      rowById
+    );
 
     imported.push(...kept);
     skipped.push(...skippedInBatch);
@@ -170,14 +169,7 @@ export async function runCrmImportPipeline(
         });
       }
     });
-
-    onBatchComplete?.(i + 1, batches.length);
-
-    // Only wait between batches, not after the last one.
-    if (i < batches.length - 1) {
-      await delay(RATE_LIMIT_INTERVAL_MS);
-    }
-  }
+  });
 
   logger.info("CRM import pipeline complete", {
     totalRows: rawRows.length,
