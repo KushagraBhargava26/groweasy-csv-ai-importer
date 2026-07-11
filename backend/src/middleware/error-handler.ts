@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { CsvParseError } from "../services/csv-parser.service";
+import { AiExtractionError } from "../services/ai-extraction.service";
 import { logger } from "../utils/logger";
 
 /**
@@ -7,12 +8,7 @@ import { logger } from "../utils/logger";
  * (err, req, res, next) — that specific signature is how Express
  * identifies this as error middleware rather than regular middleware.
  */
-export function errorHandler(
-  err: unknown,
-  req: Request,
-  res: Response,
-  _next: NextFunction
-): void {
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   logger.error("Request failed", {
     path: req.path,
     method: req.method,
@@ -29,8 +25,22 @@ export function errorHandler(
     return;
   }
 
-  if (err instanceof Error && err.name === "MulterError") {
-    res.status(400).json({ error: `File upload error: ${err.message}` });
+  if (err instanceof AiExtractionError) {
+    if (err.kind === "QUOTA_EXCEEDED") {
+      res.status(429).json({
+        error: "AI service rate limit exceeded. Please wait a moment and try again.",
+      });
+      return;
+    }
+    if (err.kind === "MALFORMED_RESPONSE") {
+      res.status(502).json({
+        error: "AI service returned an unexpected response. Please try again.",
+      });
+      return;
+    }
+    res.status(502).json({
+      error: "AI service call failed. Please try again.",
+    });
     return;
   }
 

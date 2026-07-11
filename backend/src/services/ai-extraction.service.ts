@@ -79,10 +79,13 @@ function buildCrmRecordSchema(rowCount: number) {
 const MODEL_NAME = "gemini-3.1-flash-lite";
 const systemInstruction = buildCrmExtractionPrompt();
 
+export type AiExtractionErrorKind = "QUOTA_EXCEEDED" | "MALFORMED_RESPONSE" | "API_ERROR";
+
 export class AiExtractionError extends Error {
   constructor(
     message: string,
     public readonly batchIndex: number,
+    public readonly kind: AiExtractionErrorKind = "API_ERROR",
   ) {
     super(message);
     this.name = "AiExtractionError";
@@ -130,11 +133,15 @@ export async function extractBatch(batch: Batch): Promise<unknown[]> {
         batchIndex: batch.batchIndex,
         rawResponse: responseText.slice(0, 500),
       });
-      throw new AiExtractionError(`Batch ${batch.batchIndex}: model response was not valid JSON`, batch.batchIndex);
+      throw new AiExtractionError(`Batch ${batch.batchIndex}: model response was not valid JSON`, batch.batchIndex, "MALFORMED_RESPONSE");
     }
 
     if (!Array.isArray(parsed)) {
-      throw new AiExtractionError(`Batch ${batch.batchIndex}: expected a JSON array, got ${typeof parsed}`, batch.batchIndex);
+      throw new AiExtractionError(
+        `Batch ${batch.batchIndex}: expected a JSON array, got ${typeof parsed}`,
+        batch.batchIndex,
+        "MALFORMED_RESPONSE",
+      );
     }
 
     logger.info("Batch extracted successfully", {
@@ -147,13 +154,18 @@ export async function extractBatch(batch: Batch): Promise<unknown[]> {
   } catch (err) {
     if (err instanceof AiExtractionError) throw err;
 
+    const errMessage = err instanceof Error ? err.message : String(err);
+    const isQuotaError = errMessage.includes("RESOURCE_EXHAUSTED") || errMessage.includes("429");
+
     logger.error("Gemini API call failed", {
       batchIndex: batch.batchIndex,
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage,
+      isQuotaError,
     });
     throw new AiExtractionError(
-      `Batch ${batch.batchIndex}: Gemini API call failed — ${err instanceof Error ? err.message : String(err)}`,
+      `Batch ${batch.batchIndex}: Gemini API call failed — ${errMessage}`,
       batch.batchIndex,
+      isQuotaError ? "QUOTA_EXCEEDED" : "API_ERROR",
     );
   }
 }
