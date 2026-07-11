@@ -6,7 +6,7 @@ import { parseCsvFile, CsvParseError } from "@/lib/csv-parser";
 import { RawCsvRow } from "@/types/crm-record";
 
 interface CsvUploadProps {
-  onParsed: (rows: RawCsvRow[], fileName: string, fileSizeBytes: number) => void;
+  onParsed: (file: File, rows: RawCsvRow[]) => void;
 }
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // matches backend's multer limit — reject oversized files before even attempting a parse
@@ -41,14 +41,14 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
       try {
         const rows = await parseCsvFile(file);
         setFileName(file.name);
-        onParsed(rows, file.name, file.size);
+        onParsed(file, rows);
       } catch (err) {
         setError(err instanceof CsvParseError ? err.message : "Something went wrong while reading this file.");
       } finally {
         setIsParsing(false);
       }
     },
-    [onParsed]
+    [onParsed],
   );
 
   const handleDrop = useCallback(
@@ -58,7 +58,7 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
       const file = e.dataTransfer.files[0];
       if (file) handleFile(file);
     },
-    [handleFile]
+    [handleFile],
   );
 
   const handleFileInputChange = useCallback(
@@ -66,7 +66,7 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
       const file = e.target.files?.[0];
       if (file) handleFile(file);
     },
-    [handleFile]
+    [handleFile],
   );
 
   return (
@@ -80,13 +80,10 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
         onDrop={handleDrop}
         className={`border-2 border-dashed rounded-lg p-10 flex flex-col items-center text-center transition-colors ${
           isDragging ? "border-indigo-500 bg-indigo-50" : "border-gray-300"
-        }`}
-      >
+        }`}>
         <UploadCloud size={40} className="text-indigo-500 mb-3" />
         <h3 className="font-medium text-gray-900">Upload your CSV file</h3>
-        <p className="text-sm text-gray-500 mt-1">
-          Drag & drop your file here, or click to browse
-        </p>
+        <p className="text-sm text-gray-500 mt-1">Drag & drop your file here, or click to browse</p>
         <p className="text-xs text-gray-400 mt-1">Supports .csv files up to 10MB</p>
 
         <label className="mt-4 cursor-pointer">
@@ -97,9 +94,7 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
         </label>
       </div>
 
-      {isParsing && (
-        <p className="text-sm text-gray-500 mt-4">Reading file…</p>
-      )}
+      {isParsing && <p className="text-sm text-gray-500 mt-4">Reading file…</p>}
 
       {fileName && !isParsing && !error && (
         <div className="mt-4 flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
@@ -109,11 +104,7 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
         </div>
       )}
 
-      {error && (
-        <div className="mt-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
-          {error}
-        </div>
-      )}
+      {error && <div className="mt-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
     </div>
   );
 }
