@@ -54,7 +54,22 @@ const model = genAI.getGenerativeModel({
   generationConfig: {
     responseMimeType: "application/json",
     responseSchema: crmRecordSchema,
-    temperature: 0.1, // mapping task, not creative — we want consistent output, not variation between runs
+    thinkingConfig: {
+      // This is straightforward per-row field mapping, not complex multi-step
+      // reasoning — "low" is Google's documented sweet spot for high-volume,
+      // moderate-complexity extraction pipelines like this one. Leaving
+      // thinkingConfig unset lets Gemini 3.x default to a much higher thinking
+      // level, which is what caused the earlier bug: the model "reasoned" about
+      // the whole 5-row batch as a single unit and collapsed its answer into one
+      // record, repeated 5 times, instead of mapping each row independently.
+      thinkingLevel: "low",
+    },
+    // temperature intentionally left UNSET here. We previously pinned this to
+    // 0.1 assuming "mapping task, not creative, so force low variance" — that
+    // was the right instinct for older (2.x) models, but Gemini 3.x's own docs
+    // explicitly recommend NOT overriding temperature/top_p/top_k, since its
+    // reasoning behavior is tuned around the default values. Overriding it
+    // fights against how the model's internal reasoning was calibrated.
   },
 });
 
@@ -80,6 +95,9 @@ export async function extractBatch(batch: Batch): Promise<unknown[]> {
   try {
     const result = await model.generateContent(inputPayload);
     const responseText = result.response.text();
+
+    // TEMP DEBUG — remove once the thinkingLevel fix is confirmed working.
+    console.log("RAW AI RESPONSE:", responseText);
 
     let parsed: unknown;
     try {
