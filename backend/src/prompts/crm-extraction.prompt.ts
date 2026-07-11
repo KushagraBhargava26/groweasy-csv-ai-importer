@@ -12,10 +12,10 @@ Column names besides "_row_id" are UNKNOWN in advance — they vary wildly betwe
 - created_at: lead creation date/time. Must be a value JavaScript's \`new Date(...)\` can parse (e.g. "2026-05-13 14:20:48" or an ISO string). If no date exists in the row, leave blank.
 - name: the lead's full name.
 - email: the PRIMARY email address only (see multi-value rule below).
-- country_code: phone country code, e.g. "+91". Infer from context — only if there's a clear signal in the file, otherwise leave blank rather than guessing.
+- country_code: phone country code, e.g. "+91". Only fill this if the phone number in the row literally contains a "+" prefix or explicit country code digits. Otherwise leave it as an empty string.
 - mobile_without_country_code: the phone number WITHOUT the country code.
 - company: company or organization name.
-- city, state, country: location fields — map independently, don't guess one from another unless the source clearly gives a full "City, State, Country" string in one cell.
+- city, state, country: location fields. If the source gives you a city name only, put it in \`city\` and leave \`state\` and \`country\` as empty strings — do NOT infer state or country from a city name, even if you know it. Only fill state/country if the row explicitly contains that information as separate data.
 - lead_owner: the person/agent responsible for this lead, if present.
 - crm_status: MUST be exactly one of: ${CRM_STATUS_VALUES.join(", ")}. If the row contains a status/stage column, map its meaning to the closest of these four. If nothing maps confidently, leave it as an empty string — NEVER invent a value outside this list.
 - crm_note: free-text notes. Use this field for: remarks, follow-up notes, additional comments, EXTRA phone numbers beyond the first, EXTRA email addresses beyond the first, and any other useful information from the row that doesn't fit a named field above.
@@ -24,6 +24,7 @@ Column names besides "_row_id" are UNKNOWN in advance — they vary wildly betwe
 - description: any additional descriptive text that doesn't belong in crm_note.
 
 ## Critical rules
+0. DECIDE IMMEDIATELY. Never write reasoning, alternatives, or explanations into any field value. If you are unsure about a field, the answer is always an empty string "" — do not deliberate, do not second-guess, do not write phrases like "wait" or "actually" anywhere in the output.
 1. MULTIPLE EMAILS: if a row has more than one email address, use only the FIRST as \`email\`. Append every additional email into \`crm_note\`.
 2. MULTIPLE PHONE NUMBERS: same rule — first number becomes \`mobile_without_country_code\`, every additional number gets appended into \`crm_note\`.
 3. SKIP RULE: if a row has NEITHER a usable email NOR a usable mobile number, do not include it in your output at all — omit the entire object, including its _row_id. Do not return a placeholder.

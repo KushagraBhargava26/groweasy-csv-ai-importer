@@ -10,11 +10,7 @@ import { logger } from "../utils/logger";
  * anywhere) is forwarded to Express's error-handling middleware via next(),
  * rather than crashing the process or leaving the request hanging.
  */
-export async function processImport(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
+export async function processImport(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.file) {
       res.status(400).json({ error: "No file uploaded. Expected a 'file' field." });

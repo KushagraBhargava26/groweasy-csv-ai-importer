@@ -12,49 +12,69 @@ if (!apiKey) {
 
 // NOTE: migrated from `@google/generative-ai` (now archived/deprecated by
 // Google as of Nov 30 2025) to `@google/genai`, the current unified SDK.
-// The old SDK predates Gemini 3.x and silently ignores config fields it
-// doesn't recognize — including thinkingConfig, which is why setting
-// thinkingLevel had no real effect and the model kept reasoning at an
-// unbounded default, leaking its internal thoughts into schema fields.
+// The old SDK predates Gemini 3.x and silently ignored thinkingConfig.
 const ai = new GoogleGenAI({ apiKey });
 
 // Describes the exact shape we want Gemini to return, field by field.
-// This is what makes the output reliable: Gemini's structured-output mode
-// constrains generation to match this schema, so we get a clean JSON array
-// back instead of prose we'd have to regex/parse out of markdown fences.
-// Note: the new SDK uses `Type` instead of the old `SchemaType` — same
-// concept, different import.
-const crmRecordSchema = {
-  type: Type.ARRAY,
-  items: {
-    type: Type.OBJECT,
-    properties: {
-      _row_id: { type: Type.STRING },
-      created_at: { type: Type.STRING },
-      name: { type: Type.STRING },
-      email: { type: Type.STRING },
-      country_code: { type: Type.STRING },
-      mobile_without_country_code: { type: Type.STRING },
-      company: { type: Type.STRING },
-      city: { type: Type.STRING },
-      state: { type: Type.STRING },
-      country: { type: Type.STRING },
-      lead_owner: { type: Type.STRING },
-      crm_status: { type: Type.STRING },
-      crm_note: { type: Type.STRING },
-      data_source: { type: Type.STRING },
-      possession_time: { type: Type.STRING },
-      description: { type: Type.STRING },
+// Every field carries a `description` telling the model to return ONLY
+// the extracted value — no reasoning, no explanation. This was added
+// after a real bug: with a very low thinking budget, the model started
+// "thinking out loud" INSIDE field values (e.g. state: "Wait, the
+// instructions say...") instead of in its private reasoning channel.
+// The explicit per-field instruction closes that gap.
+const VALUE_ONLY = "The extracted value only. No explanation or reasoning text.";
+
+function buildCrmRecordSchema(rowCount: number) {
+  return {
+    type: Type.ARRAY,
+    maxItems: rowCount,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        _row_id: { type: Type.STRING, description: "Copy the input row's _row_id exactly, unchanged." },
+        created_at: { type: Type.STRING, description: VALUE_ONLY },
+        name: { type: Type.STRING, description: VALUE_ONLY },
+        email: { type: Type.STRING, description: VALUE_ONLY },
+        country_code: { type: Type.STRING, description: VALUE_ONLY },
+        mobile_without_country_code: { type: Type.STRING, description: VALUE_ONLY },
+        company: { type: Type.STRING, description: VALUE_ONLY },
+        city: { type: Type.STRING, description: VALUE_ONLY },
+        state: { type: Type.STRING, description: VALUE_ONLY },
+        country: { type: Type.STRING, description: VALUE_ONLY },
+        lead_owner: { type: Type.STRING, description: VALUE_ONLY },
+        crm_status: { type: Type.STRING, description: VALUE_ONLY },
+        crm_note: { type: Type.STRING, description: VALUE_ONLY },
+        data_source: { type: Type.STRING, description: VALUE_ONLY },
+        possession_time: { type: Type.STRING, description: VALUE_ONLY },
+        description: { type: Type.STRING, description: VALUE_ONLY },
+      },
+      required: [
+        "_row_id",
+        "created_at",
+        "name",
+        "email",
+        "country_code",
+        "mobile_without_country_code",
+        "company",
+        "city",
+        "state",
+        "country",
+        "lead_owner",
+        "crm_status",
+        "crm_note",
+        "data_source",
+        "possession_time",
+        "description",
+      ],
     },
-    required: ["_row_id"],
-  },
-};
+  };
+}
 // crm_status/data_source are plain STRING here, not a Gemini schema
 // enum, on purpose: a strict schema enum can cause the whole batch to
 // fail if the model can't confidently pick one. Treating them as free
 // strings (constrained by the PROMPT instead) lets the model leave a
-// field blank when unsure, and validation.service.ts (next file) is
-// what actually guarantees only the allowed values reach the frontend.
+// field blank when unsure, and validation.service.ts is what actually
+// guarantees only the allowed values reach the frontend.
 
 const MODEL_NAME = "gemini-3.1-flash-lite";
 const systemInstruction = buildCrmExtractionPrompt();
@@ -72,8 +92,8 @@ export class AiExtractionError extends Error {
 /**
  * Sends one batch of raw rows to Gemini and returns the extracted CRM records.
  * Does NOT enforce enum values or the skip rule as a safety net — that's
- * validation.service.ts's job, next. This function's only responsibility
- * is "call the model, get parsed JSON back."
+ * validation.service.ts's job. This function's only responsibility is
+ * "call the model, get parsed JSON back."
  */
 export async function extractBatch(batch: Batch): Promise<unknown[]> {
   const inputPayload = JSON.stringify(batch.rows);
@@ -85,14 +105,15 @@ export async function extractBatch(batch: Batch): Promise<unknown[]> {
       config: {
         systemInstruction,
         responseMimeType: "application/json",
-        responseSchema: crmRecordSchema,
+        responseSchema: buildCrmRecordSchema(batch.rows.length),
         thinkingConfig: {
-          // Straightforward per-row field mapping, not complex multi-step
-          // reasoning — LOW is the documented sweet spot for high-volume,
-          // moderate-complexity extraction. This now actually takes effect,
-          // unlike under the old SDK.
+          // LOW is sufficient now that responseSchema enforces all 16
+          // fields as `required` and caps the array with `maxItems`,
+          // which together stopped the model from truncating output or
+          // looping on repeated rows regardless of thinking budget size.
           thinkingLevel: ThinkingLevel.LOW,
         },
+        maxOutputTokens: 8192,
         // temperature intentionally left UNSET — Gemini 3.x docs recommend
         // not overriding temperature/top_p/top_k, since its reasoning
         // behavior is tuned around the defaults.
@@ -100,9 +121,6 @@ export async function extractBatch(batch: Batch): Promise<unknown[]> {
     });
 
     const responseText = result.text ?? "";
-
-    // TEMP DEBUG — remove once this migration is confirmed working.
-    console.log("RAW AI RESPONSE:", responseText);
 
     let parsed: unknown;
     try {
