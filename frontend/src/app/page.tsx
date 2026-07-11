@@ -7,8 +7,9 @@ import { CsvPreviewTable } from "@/components/preview/CsvPreviewTable";
 import { ImportResultsView } from "@/components/results/ImportResultsView";
 import { importCsv, ApiError } from "@/lib/api-client";
 import { RawCsvRow, ImportResult } from "@/types/crm-record";
+import { ProcessingView } from "@/components/preview/ProcessingView";
 
-type Step = "upload" | "preview" | "results";
+type Step = "upload" | "preview" | "processing" | "results";
 
 export default function Home() {
   const [step, setStep] = useState<Step>("upload");
@@ -30,6 +31,7 @@ export default function Home() {
 
     setIsSubmitting(true);
     setSubmitError(null);
+    setStep("processing");
 
     try {
       const importResult = await importCsv(csvFile);
@@ -37,6 +39,7 @@ export default function Home() {
       setStep("results");
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.message : "Something went wrong while processing your file. Please try again.");
+      setStep("preview");
     } finally {
       setIsSubmitting(false);
     }
@@ -61,6 +64,8 @@ export default function Home() {
         {step === "preview" && csvFile && (
           <CsvPreviewTable rows={rows} fileName={csvFile.name} onConfirm={handleConfirm} isSubmitting={isSubmitting} />
         )}
+
+        {step === "processing" && csvFile && <ProcessingView fileName={csvFile.name} rowCount={rows.length} />}
 
         {step === "results" && result && <ImportResultsView result={result} onStartOver={handleStartOver} />}
       </div>

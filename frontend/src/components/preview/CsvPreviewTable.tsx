@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { RawCsvRow } from "@/types/crm-record";
+import { Loader2 } from "lucide-react";
 
 interface CsvPreviewTableProps {
   rows: RawCsvRow[];
@@ -40,8 +41,8 @@ export function CsvPreviewTable({ rows, fileName, onConfirm, isSubmitting }: Csv
         <button
           onClick={onConfirm}
           disabled={isSubmitting}
-          className="bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
+          className="bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
+          {isSubmitting && <Loader2 size={16} className="animate-spin" />}
           {isSubmitting ? "Importing…" : "Confirm Import"}
         </button>
       </div>
@@ -54,10 +55,7 @@ export function CsvPreviewTable({ rows, fileName, onConfirm, isSubmitting }: Csv
           <thead className="sticky top-0 bg-gray-50 border-b border-gray-200 z-10">
             <tr>
               {columns.map((col) => (
-                <th
-                  key={col}
-                  className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap"
-                >
+                <th key={col} className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">
                   {col}
                 </th>
               ))}
@@ -80,22 +78,19 @@ export function CsvPreviewTable({ rows, fileName, onConfirm, isSubmitting }: Csv
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 text-sm text-gray-500">
           <span>
-            Showing {page * ROWS_PER_PAGE + 1}–{Math.min((page + 1) * ROWS_PER_PAGE, rows.length)} of{" "}
-            {rows.length}
+            Showing {page * ROWS_PER_PAGE + 1}–{Math.min((page + 1) * ROWS_PER_PAGE, rows.length)} of {rows.length}
           </span>
           <div className="flex gap-1">
             <button
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               disabled={page === 0}
-              className="px-3 py-1 rounded border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
-            >
+              className="px-3 py-1 rounded border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50">
               Prev
             </button>
             <button
               onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               disabled={page === totalPages - 1}
-              className="px-3 py-1 rounded border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
-            >
+              className="px-3 py-1 rounded border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50">
               Next
             </button>
           </div>
