@@ -448,3 +448,18 @@ Additional edge-case files at the project root: `empty-test.csv` (empty file), `
 
 **`docker run` fails with "ports are not available"**
 → Something else (often your own `npm run dev`) is already using that port. Map to a different host port, e.g. `-p 3001:3000`.
+
+---
+
+## Useful links
+
+- **Live demo (frontend):** https://groweasy-frontend-beta.vercel.app
+- **Live backend health check:** https://groweasy-backend-8p8t.onrender.com/health
+- **Repo:** https://github.com/KushagraBhargava26/groweasy-csv-ai-importer
+- **Architecture doc:** [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+- **Google AI Studio (get a Gemini API key):** https://aistudio.google.com/apikey
+- **Gemini API docs:** https://ai.google.dev/gemini-api/docs
+- **`@google/genai` SDK on npm:** https://www.npmjs.com/package/@google/genai
+- **exceljs on npm:** https://www.npmjs.com/package/exceljs
+- **PapaParse docs:** https://www.papaparse.com/docs
+- **Vitest docs:** https://vitest.dev/
