@@ -1,5 +1,7 @@
+import { Download } from "lucide-react";
 import { ImportResult } from "@/types/crm-record";
 import { ImportSummaryPanel } from "@/components/shared/ImportSummaryPanel";
+import { downloadImportedCsv, downloadSkippedCsv } from "@/lib/sample-csv";
 
 interface ImportResultsViewProps {
   result: ImportResult;
@@ -21,9 +23,17 @@ export function ImportResultsView({ result, onStartOver }: ImportResultsViewProp
 
       {result.imported.length > 0 && (
         <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-slate-700">
-            <h3 className="font-medium text-gray-900 dark:text-white">Imported Records</h3>
-            <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">{result.imported.length} records mapped to CRM format</p>
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-slate-700">
+            <div>
+              <h3 className="font-medium text-gray-900 dark:text-white">Imported Records</h3>
+              <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">{result.imported.length} records mapped to CRM format</p>
+            </div>
+            <button
+              onClick={() => downloadImportedCsv(result.imported)}
+              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shrink-0">
+              <Download size={16} />
+              Download CRM CSV
+            </button>
           </div>
           <div className="overflow-auto max-h-[420px]">
             <table className="w-full text-sm">
@@ -54,9 +64,17 @@ export function ImportResultsView({ result, onStartOver }: ImportResultsViewProp
 
       {result.skipped.length > 0 && (
         <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-slate-700">
-            <h3 className="font-medium text-gray-900 dark:text-white">Skipped Records</h3>
-            <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">{result.skipped.length} records were not imported</p>
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-slate-700">
+            <div>
+              <h3 className="font-medium text-gray-900 dark:text-white">Skipped Records</h3>
+              <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">{result.skipped.length} records were not imported</p>
+            </div>
+            <button
+              onClick={() => downloadSkippedCsv(result.skipped)}
+              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shrink-0">
+              <Download size={16} />
+              Download Skipped CSV
+            </button>
           </div>
           <div className="overflow-auto max-h-[320px]">
             <table className="w-full text-sm">
