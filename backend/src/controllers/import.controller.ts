@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { parseCsv } from "../services/csv-parser.service";
+import { listSheetNames, XlsxParseError } from "../services/xlsx-parser.service";
 import { runCrmImportPipeline } from "../services/crm-mapper.service";
 import { createBatches, DEFAULT_BATCH_SIZE } from "../services/batching.service";
 import { createJob, updateJob, getJob } from "../services/job-store.service";
@@ -136,6 +137,31 @@ export async function previewMapping(req: Request, res: Response, next: NextFunc
       sampleResult,
     });
   } catch (err) {
+    next(err);
+  }
+}
+/**
+ * POST /api/import/xlsx-sheets
+ * Cheap, sheet-names-only endpoint — lets the frontend show a sheet
+ * picker for multi-sheet workbooks before the user commits to parsing
+ * (and later, AI-processing) a specific one. Deliberately separate from
+ * previewMapping/processImport since this never touches row data or AI.
+ */
+export async function listXlsxSheets(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: "No file uploaded. Expected a 'file' field." });
+      return;
+    }
+
+    const sheetNames = await listSheetNames(req.file.buffer);
+
+    res.status(200).json({ sheetNames });
+  } catch (err) {
+    if (err instanceof XlsxParseError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
     next(err);
   }
 }
