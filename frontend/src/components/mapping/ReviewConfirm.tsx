@@ -5,8 +5,11 @@ import { FileText, AlertTriangle, Loader2, CheckCircle2 } from "lucide-react";
 interface ReviewConfirmProps {
   fileName: string;
   totalRows: number;
-  sampleMappedCount: number;
-  sampleSkippedCount: number;
+  // Undefined when the user skipped the AI mapping preview step entirely
+  // (the direct "Confirm & Start Import" path from the raw CSV preview,
+  // which never calls the AI at all before this point).
+  sampleMappedCount?: number;
+  sampleSkippedCount?: number;
   onConfirm: () => void;
   onBack: () => void;
   isSubmitting: boolean;
@@ -29,7 +32,8 @@ export function ReviewConfirm({
   onBack,
   isSubmitting,
 }: ReviewConfirmProps) {
-  const sampleTotal = sampleMappedCount + sampleSkippedCount;
+  const hasSample = sampleMappedCount !== undefined && sampleSkippedCount !== undefined;
+  const sampleTotal = hasSample ? sampleMappedCount + sampleSkippedCount : 0;
   const estimatedMinutes = Math.ceil((totalRows / 10) * (4.2 / 60));
 
   return (
@@ -43,11 +47,13 @@ export function ReviewConfirm({
       </div>
 
       <div className="bg-gray-50 dark:bg-slate-800 rounded-lg p-4 mb-6 space-y-2">
-        <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
-          <CheckCircle2 size={16} className="text-green-600 dark:text-green-400 shrink-0" />
-          Based on a sample of {sampleTotal} rows, {sampleMappedCount} mapped successfully
-          {sampleSkippedCount > 0 && ` and ${sampleSkippedCount} would be skipped`}.
-        </div>
+        {hasSample && (
+          <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
+            <CheckCircle2 size={16} className="text-green-600 dark:text-green-400 shrink-0" />
+            Based on a sample of {sampleTotal} rows, {sampleMappedCount} mapped successfully
+            {sampleSkippedCount! > 0 && ` and ${sampleSkippedCount} would be skipped`}.
+          </div>
+        )}
         <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
           <AlertTriangle size={16} className="text-amber-500 shrink-0" />
           This will run in the background and may take approximately {estimatedMinutes} minute

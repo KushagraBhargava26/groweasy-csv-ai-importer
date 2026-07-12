@@ -55,8 +55,21 @@ export default function Home() {
     setStep("review");
   }
 
-  function handleBackToMapping() {
-    setStep("mapping");
+  // Step 3 -> new "confirm without preview" path: no async work, just
+  // skips straight to the review checkpoint without ever calling the AI.
+  // This is the literal-spec-compliant path — no AI runs until this
+  // point, and clicking "Confirm & Start Import" on the NEXT screen is
+  // the actual confirmation that triggers the real (full-file) AI call.
+  function handleSkipToReview() {
+    setMappingPreview(null);
+    setStep("review");
+  }
+
+  // Goes back to wherever the user came from — "mapping" if they'd
+  // generated a preview, "preview" (the raw CSV screen) if they skipped
+  // straight to review.
+  function handleBackFromReview() {
+    setStep(mappingPreview ? "mapping" : "preview");
   }
 
   // Step 4 -> 5: this is what actually kicks off the full background job.
@@ -112,21 +125,27 @@ export default function Home() {
         {step === "upload" && <CsvUpload onParsed={handleParsed} />}
 
         {step === "preview" && csvFile && (
-          <CsvPreviewTable rows={rows} fileName={csvFile.name} onConfirm={handleRequestMappingPreview} isSubmitting={isFetchingPreview} />
+          <CsvPreviewTable
+            rows={rows}
+            fileName={csvFile.name}
+            onPreviewMapping={handleRequestMappingPreview}
+            onSkipToConfirm={handleSkipToReview}
+            isSubmitting={isFetchingPreview}
+          />
         )}
 
         {step === "mapping" && mappingPreview && (
           <AiMappingPreview preview={mappingPreview} onContinue={handleContinueToReview} isStartingImport={false} />
         )}
 
-        {step === "review" && csvFile && mappingPreview && (
+        {step === "review" && csvFile && (
           <ReviewConfirm
             fileName={csvFile.name}
-            totalRows={mappingPreview.totalRows}
-            sampleMappedCount={mappingPreview.sampleResult.imported.length}
-            sampleSkippedCount={mappingPreview.sampleResult.skipped.length}
+            totalRows={mappingPreview?.totalRows ?? rows.length}
+            sampleMappedCount={mappingPreview?.sampleResult.imported.length}
+            sampleSkippedCount={mappingPreview?.sampleResult.skipped.length}
             onConfirm={handleConfirmImport}
-            onBack={handleBackToMapping}
+            onBack={handleBackFromReview}
             isSubmitting={isStartingImport}
           />
         )}

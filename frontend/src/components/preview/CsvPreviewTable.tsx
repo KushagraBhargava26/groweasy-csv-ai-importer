@@ -8,24 +8,22 @@ import { downloadExampleCsv } from "@/lib/sample-csv";
 interface CsvPreviewTableProps {
   rows: RawCsvRow[];
   fileName: string;
-  onConfirm: () => void;
+  onPreviewMapping: () => void;
+  onSkipToConfirm: () => void;
   isSubmitting: boolean;
 }
 
 const ROW_HEIGHT_PX = 44;
 const TABLE_HEIGHT_PX = 420;
 
-export function CsvPreviewTable({ rows, fileName, onConfirm, isSubmitting }: CsvPreviewTableProps) {
+export function CsvPreviewTable({ rows, fileName, onPreviewMapping, onSkipToConfirm, isSubmitting }: CsvPreviewTableProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const allColumns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
 
-  const visibleColumns = useMemo(
-    () => allColumns.filter((col) => !hiddenColumns.has(col)),
-    [allColumns, hiddenColumns],
-  );
+  const visibleColumns = useMemo(() => allColumns.filter((col) => !hiddenColumns.has(col)), [allColumns, hiddenColumns]);
 
   function toggleColumn(col: string) {
     setHiddenColumns((prev) => {
@@ -71,12 +69,7 @@ export function CsvPreviewTable({ rows, fileName, onConfirm, isSubmitting }: Csv
                   <label
                     key={col}
                     className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 dark:text-slate-200 rounded hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={!hiddenColumns.has(col)}
-                      onChange={() => toggleColumn(col)}
-                      className="rounded"
-                    />
+                    <input type="checkbox" checked={!hiddenColumns.has(col)} onChange={() => toggleColumn(col)} className="rounded" />
                     <span className="truncate">{col}</span>
                   </label>
                 ))}
@@ -92,17 +85,18 @@ export function CsvPreviewTable({ rows, fileName, onConfirm, isSubmitting }: Csv
           </button>
 
           <button
-            onClick={onConfirm}
+            onClick={onPreviewMapping}
+            disabled={isSubmitting}
+            className="flex items-center gap-2 text-sm font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 px-4 py-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+            {isSubmitting ? "Analyzing…" : "Preview AI Mapping (optional)"}
+          </button>
+
+          <button
+            onClick={onSkipToConfirm}
             disabled={isSubmitting}
             className="flex items-center gap-2 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-            {isSubmitting ? (
-              "Analyzing…"
-            ) : (
-              <>
-                Next: AI Mapping
-                <ArrowRight size={16} />
-              </>
-            )}
+            Confirm & Start Import
+            <ArrowRight size={16} />
           </button>
         </div>
       </div>
