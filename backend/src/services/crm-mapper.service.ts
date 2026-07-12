@@ -8,15 +8,6 @@ const ROW_ID_KEY = "_row_id";
 const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 500;
 
-// How many batches are allowed to be in flight against Gemini at once.
-// Free-tier Gemini rate limits (roughly 10-15 requests/minute for
-// flash-lite-class models) mean firing all batches simultaneously — e.g.
-// 50 batches for a 1000-row file — causes most of them to get rate-limited
-// immediately, fall through to retry-with-backoff, and only trickle through
-// as the rate-limit window rolls over. Capping concurrency keeps us
-// comfortably under the limit instead of relying on brute-force retries.
-const MAX_CONCURRENT_BATCHES = 4;
-
 function tagRowsWithId(rows: RawCsvRow[]): RawCsvRow[] {
   return rows.map((row, index) => ({
     ...row,
@@ -56,53 +47,15 @@ async function extractBatchWithRetry(batch: Batch): Promise<unknown[]> {
 }
 
 /**
- * Runs a list of async tasks with at most `limit` running concurrently,
- * preserving input order in the returned results (same contract as
- * Promise.allSettled, just throttled).
- *
- * onEachSettled fires after EVERY task settles — success or failure —
- * with a running count. This is what powers the job-store's live progress
- * (batchesCompleted / totalBatches), which the frontend polls to show
- * "X of Y batches processed." Without this callback firing incrementally,
- * the progress bar would just sit at 0% until the entire import finished,
- * same as before.
- */
-async function runWithConcurrencyLimit<T>(
-  tasks: (() => Promise<T>)[],
-  limit: number,
-  onEachSettled?: (completedCount: number, total: number) => void
-): Promise<PromiseSettledResult<T>[]> {
-  const results: PromiseSettledResult<T>[] = new Array(tasks.length);
-  let nextIndex = 0;
-  let completedCount = 0;
-
-  async function worker(): Promise<void> {
-    while (nextIndex < tasks.length) {
-      const currentIndex = nextIndex;
-      nextIndex++;
-      try {
-        const value = await tasks[currentIndex]();
-        results[currentIndex] = { status: "fulfilled", value };
-      } catch (reason) {
-        results[currentIndex] = { status: "rejected", reason };
-      }
-      completedCount++;
-      onEachSettled?.(completedCount, tasks.length);
-    }
-  }
-
-  const workerCount = Math.min(limit, tasks.length);
-  const workers = Array.from({ length: workerCount }, () => worker());
-  await Promise.all(workers);
-
-  return results;
-}
-
-/**
- * The full pipeline: raw parsed CSV rows in, a complete ImportResult out.
- * onProgress is optional — the background job runner (import.controller.ts)
- * passes one in to update the job store as batches complete; a direct
- * synchronous caller (e.g. a test) can simply omit it.
+ * REVERTED from the concurrency-limited version: capping concurrency to 4
+ * with short retry backoff made things WORSE (73/100 batches permanently
+ * failed on a real run, vs 0 failures — just slow — when firing everything
+ * at once). Likely cause: a worker hitting a rate limit, backing off only
+ * 500-1000ms, exhausting its 2 retries, and immediately grabbing the next
+ * batch into that same slot — hammering the API in a tight loop instead of
+ * genuinely backing off. Firing all batches at once and letting the
+ * existing retry-with-backoff sort itself out organically over ~20 minutes
+ * was slower but reliably reached 100% success. Back to that.
  */
 export async function runCrmImportPipeline(
   rawRows: RawCsvRow[],
@@ -116,11 +69,15 @@ export async function runCrmImportPipeline(
   const skipped: SkippedRow[] = [];
   let batchesProcessed = 0;
   let batchesFailed = 0;
+  let batchesCompleted = 0;
 
-  const results = await runWithConcurrencyLimit(
-    batches.map((batch) => () => extractBatchWithRetry(batch)),
-    MAX_CONCURRENT_BATCHES,
-    onProgress
+  const results = await Promise.allSettled(
+    batches.map(async (batch) => {
+      const result = await extractBatchWithRetry(batch);
+      batchesCompleted++;
+      onProgress?.(batchesCompleted, batches.length);
+      return result;
+    })
   );
 
   results.forEach((result, i) => {
@@ -128,6 +85,8 @@ export async function runCrmImportPipeline(
 
     if (result.status === "rejected") {
       batchesFailed++;
+      batchesCompleted++;
+      onProgress?.(batchesCompleted, batches.length);
       logger.error("Batch failed after all retries — skipping its rows", {
         batchIndex: batch.batchIndex,
         error: result.reason instanceof Error ? result.reason.message : String(result.reason),
