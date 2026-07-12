@@ -16,8 +16,6 @@ interface ProcessingViewProps {
 
 export function ProcessingView({ fileName, rowCount, jobId, onComplete, onError }: ProcessingViewProps) {
   const [status, setStatus] = useState<ImportJobStatus | null>(null);
-  // Guards against a completed/failed callback firing twice if a poll
-  // response arrives after we've already resolved this job.
   const resolvedRef = useRef(false);
 
   useEffect(() => {
@@ -53,17 +51,20 @@ export function ProcessingView({ fileName, rowCount, jobId, onComplete, onError 
   const percent = totalBatches > 0 ? Math.round((batchesCompleted / totalBatches) * 100) : 0;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-12 flex flex-col items-center text-center">
-      <Loader2 size={40} className="text-indigo-600 animate-spin mb-5" />
-      <h3 className="font-medium text-gray-900">Processing {fileName}</h3>
-      <p className="text-sm text-gray-500 mt-1">{rowCount} rows being mapped to GrowEasy CRM format</p>
+    <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl p-12 flex flex-col items-center text-center">
+      <Loader2 size={40} className="text-indigo-600 dark:text-indigo-400 animate-spin mb-5" />
+      <h3 className="font-medium text-gray-900 dark:text-white">Processing {fileName}</h3>
+      <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">{rowCount} rows being mapped to GrowEasy CRM format</p>
 
       {totalBatches > 0 && (
         <>
-          <div className="w-full max-w-sm bg-gray-100 rounded-full h-2 mt-6 overflow-hidden">
-            <div className="bg-indigo-600 h-2 rounded-full transition-all duration-500" style={{ width: `${percent}%` }} />
+          <div className="w-full max-w-sm bg-gray-100 dark:bg-slate-800 rounded-full h-2 mt-6 overflow-hidden">
+            <div
+              className="bg-indigo-600 dark:bg-indigo-500 h-2 rounded-full transition-all duration-500"
+              style={{ width: `${percent}%` }}
+            />
           </div>
-          <p className="text-sm text-indigo-600 font-medium mt-3">
+          <p className="text-sm text-indigo-600 dark:text-indigo-400 font-medium mt-3">
             {batchesCompleted} of {totalBatches} batches processed ({percent}%)
           </p>
         </>
