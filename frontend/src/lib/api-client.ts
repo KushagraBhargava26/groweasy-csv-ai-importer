@@ -70,3 +70,29 @@ export async function getImportStatus(jobId: string): Promise<ImportJobStatus> {
 
   return response.json();
 }
+export interface MappingPreviewResponse {
+  totalRows: number;
+  sampleResult: ImportResult;
+}
+
+/**
+ * Calls the new synchronous sample-mapping endpoint — runs the REAL AI
+ * pipeline on just the first 5 rows, fast enough to await directly like
+ * a normal request (unlike the full-file job, which requires polling).
+ * Powers the AI Mapping review step.
+ */
+export async function previewMapping(file: File): Promise<MappingPreviewResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_BASE_URL}/api/import/preview-mapping`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response, "Could not generate mapping preview. Please try again.");
+  }
+
+  return response.json();
+}
