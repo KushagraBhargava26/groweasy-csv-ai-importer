@@ -1,4 +1,7 @@
-// Mirrors backend/src/types/crm-record.ts exactly. Kept as a separate file
+// Mirrors backend/src/types/crm-record.ts for all types/interfaces below.
+// (CRM_FIELDS is the one frontend-only addition — a utility constant with
+// no backend equivalent, used for generating the example CSV download.)
+// Kept as a separate file
 // (not a shared package) since this is a simple two-folder monorepo, not an
 // npm workspace setup — duplication here is a deliberate, small tradeoff for
 // simplicity. If these two files ever drift apart, the frontend will start
@@ -41,6 +44,27 @@ export interface CrmRecord {
   possession_time?: string;
   description?: string;
 }
+
+// Ordered field list for the CRM record — frontend-only utility (not mirrored
+// from the backend), used to generate the downloadable example CSV so its
+// column order/names can never drift from the actual CrmRecord shape above.
+export const CRM_FIELDS: (keyof CrmRecord)[] = [
+  "name",
+  "email",
+  "country_code",
+  "mobile_without_country_code",
+  "company",
+  "city",
+  "state",
+  "country",
+  "lead_owner",
+  "crm_status",
+  "crm_note",
+  "data_source",
+  "possession_time",
+  "description",
+  "created_at",
+];
 
 // A raw row from the uploaded CSV, before any AI processing — this is what
 // Step 2 (preview) displays. Column names are unknown ahead of time.
