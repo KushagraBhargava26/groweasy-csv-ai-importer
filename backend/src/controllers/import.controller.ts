@@ -1,21 +1,45 @@
 import { Request, Response, NextFunction } from "express";
 import { parseCsv } from "../services/csv-parser.service";
-import { listSheetNames, XlsxParseError } from "../services/xlsx-parser.service";
+import { listSheetNames, parseXlsxSheet, XlsxParseError } from "../services/xlsx-parser.service";
 import { runCrmImportPipeline } from "../services/crm-mapper.service";
 import { createBatches, DEFAULT_BATCH_SIZE } from "../services/batching.service";
 import { createJob, updateJob, getJob } from "../services/job-store.service";
+import { RawCsvRow } from "../types/crm-record";
 import { logger } from "../utils/logger";
+
+const XLSX_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+function isXlsxFile(file: Express.Multer.File): boolean {
+  return file.mimetype === XLSX_MIMETYPE || file.originalname.toLowerCase().endsWith(".xlsx");
+}
+
+/**
+ * Parses an uploaded file into RawCsvRow[] regardless of whether it's a
+ * .csv or .xlsx file — this is the one place that branches by format;
+ * everything downstream (batching, AI extraction, validation) stays
+ * completely format-agnostic. For xlsx files, sheetName is required
+ * (the frontend must have already called /xlsx-sheets and let the user
+ * pick one — there's no silent "just use the first sheet" fallback,
+ * since that could quietly import the wrong data on a multi-sheet file).
+ */
+async function parseUploadedFile(file: Express.Multer.File, sheetName?: string): Promise<RawCsvRow[]> {
+  if (isXlsxFile(file)) {
+    if (!sheetName) {
+      throw new XlsxParseError("This is an Excel file — a 'sheetName' field is required to select which sheet to import.");
+    }
+    return parseXlsxSheet(file.buffer, sheetName);
+  }
+
+  const rawCsvText = file.buffer.toString("utf-8");
+  return parseCsv(rawCsvText);
+}
 
 /**
  * POST /api/import/process
- * Now runs as a background job instead of blocking the request: parses
- * the CSV, creates a job, kicks off processing WITHOUT awaiting it, and
- * returns the jobId immediately. The row-count cap is gone — the old
- * limit existed only because a single synchronous request couldn't
- * survive a big file's total processing time. That constraint no longer
- * applies once processing happens outside the request/response cycle.
- * The client polls GET /api/import/status/:jobId for progress and the
- * final result.
+ * Runs as a background job: parses the file (CSV or Excel), creates a
+ * job, kicks off processing WITHOUT awaiting it, and returns the jobId
+ * immediately. The client polls GET /api/import/status/:jobId for
+ * progress and the final result.
  */
 export async function processImport(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -24,8 +48,8 @@ export async function processImport(req: Request, res: Response, next: NextFunct
       return;
     }
 
-    const rawCsvText = req.file.buffer.toString("utf-8");
-    const rawRows = parseCsv(rawCsvText);
+    const sheetName = typeof req.body.sheetName === "string" ? req.body.sheetName : undefined;
+    const rawRows = await parseUploadedFile(req.file, sheetName);
     const batchCount = createBatches(rawRows, DEFAULT_BATCH_SIZE).length;
 
     const job = createJob(req.file.originalname, rawRows.length, batchCount);
@@ -33,6 +57,7 @@ export async function processImport(req: Request, res: Response, next: NextFunct
     logger.info("Starting background import job", {
       jobId: job.id,
       fileName: req.file.originalname,
+      sheetName,
       rowCount: rawRows.length,
       batchCount,
     });
@@ -44,11 +69,15 @@ export async function processImport(req: Request, res: Response, next: NextFunct
 
     res.status(202).json({ jobId: job.id });
   } catch (err) {
+    if (err instanceof XlsxParseError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
     next(err);
   }
 }
 
-async function runImportInBackground(jobId: string, rawRows: Awaited<ReturnType<typeof parseCsv>>): Promise<void> {
+async function runImportInBackground(jobId: string, rawRows: RawCsvRow[]): Promise<void> {
   updateJob(jobId, { status: "processing" });
 
   try {
@@ -74,9 +103,6 @@ async function runImportInBackground(jobId: string, rawRows: Awaited<ReturnType<
 
 /**
  * GET /api/import/status/:jobId
- * Returns the current state of a background import job: still processing
- * (with progress), completed (with the full ImportResult), failed (with
- * an error message), or 404 if the jobId is unknown or has expired.
  */
 export function getImportStatus(req: Request, res: Response): void {
   const { jobId } = req.params;
@@ -104,10 +130,8 @@ const SAMPLE_SIZE = 5;
 /**
  * POST /api/import/preview-mapping
  * Runs the REAL AI extraction pipeline, but only on the first few rows,
- * synchronously — small enough to stay well within a normal request/
- * response cycle, unlike the full-file job which runs in the background.
- * This powers the "AI Mapping" review step: the user sees actual mapped
- * output before committing to processing the entire file.
+ * synchronously. Now format-aware (CSV or Excel) via the same
+ * parseUploadedFile() helper processImport uses.
  */
 export async function previewMapping(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -116,20 +140,17 @@ export async function previewMapping(req: Request, res: Response, next: NextFunc
       return;
     }
 
-    const rawCsvText = req.file.buffer.toString("utf-8");
-    const rawRows = parseCsv(rawCsvText);
+    const sheetName = typeof req.body.sheetName === "string" ? req.body.sheetName : undefined;
+    const rawRows = await parseUploadedFile(req.file, sheetName);
     const sampleRows = rawRows.slice(0, SAMPLE_SIZE);
 
     logger.info("Running AI mapping preview on sample", {
       fileName: req.file.originalname,
+      sheetName,
       totalRows: rawRows.length,
       sampleSize: sampleRows.length,
     });
 
-    // Reuses the exact same pipeline as the real import — same prompt,
-    // same schema, same validation — just on a handful of rows so it's
-    // genuinely representative of what the full run will produce, not a
-    // simplified or faked preview.
     const sampleResult = await runCrmImportPipeline(sampleRows, sampleRows.length);
 
     res.status(200).json({
@@ -137,15 +158,18 @@ export async function previewMapping(req: Request, res: Response, next: NextFunc
       sampleResult,
     });
   } catch (err) {
+    if (err instanceof XlsxParseError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
     next(err);
   }
 }
+
 /**
  * POST /api/import/xlsx-sheets
  * Cheap, sheet-names-only endpoint — lets the frontend show a sheet
- * picker for multi-sheet workbooks before the user commits to parsing
- * (and later, AI-processing) a specific one. Deliberately separate from
- * previewMapping/processImport since this never touches row data or AI.
+ * picker for multi-sheet workbooks before committing to a specific one.
  */
 export async function listXlsxSheets(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
