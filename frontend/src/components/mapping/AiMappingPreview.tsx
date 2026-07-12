@@ -2,6 +2,7 @@
 
 import { CheckCircle2, XCircle, ArrowRight, Loader2 } from "lucide-react";
 import { MappingPreviewResponse } from "@/lib/api-client";
+import { CrmRecord } from "@/types/crm-record";
 
 interface AiMappingPreviewProps {
   preview: MappingPreviewResponse;
@@ -17,8 +18,8 @@ interface AiMappingPreviewProps {
  */
 export function AiMappingPreview({ preview, onContinue, isStartingImport }: AiMappingPreviewProps) {
   const { sampleResult, totalRows } = preview;
-  const sampleColumns =
-    sampleResult.imported.length > 0 ? Object.keys(sampleResult.imported[0]) : [];
+  const sampleColumns: (keyof CrmRecord)[] =
+    sampleResult.imported.length > 0 ? (Object.keys(sampleResult.imported[0]) as (keyof CrmRecord)[]) : [];
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden">
@@ -36,10 +37,7 @@ export function AiMappingPreview({ preview, onContinue, isStartingImport }: AiMa
             <thead className="sticky top-0 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 z-10">
               <tr>
                 {sampleColumns.map((col) => (
-                  <th
-                    key={col}
-                    className="text-left px-4 py-3 font-medium text-gray-600 dark:text-slate-300 whitespace-nowrap"
-                  >
+                  <th key={col} className="text-left px-4 py-3 font-medium text-gray-600 dark:text-slate-300 whitespace-nowrap">
                     {col}
                   </th>
                 ))}
@@ -77,8 +75,7 @@ export function AiMappingPreview({ preview, onContinue, isStartingImport }: AiMa
         <button
           onClick={onContinue}
           disabled={isStartingImport}
-          className="bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-        >
+          className="bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
           {isStartingImport ? (
             <>
               <Loader2 size={16} className="animate-spin" />
