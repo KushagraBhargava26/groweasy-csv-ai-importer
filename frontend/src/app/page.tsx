@@ -65,7 +65,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen bg-gray-50 dark:bg-slate-950">
       <Topbar title="Import Leads" subtitle="Upload CSV and let AI extract lead information" />
       <div className="p-8 max-w-6xl mx-auto space-y-4">
         {submitError && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{submitError}</div>}
