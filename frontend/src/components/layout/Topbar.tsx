@@ -1,4 +1,4 @@
-import { Leaf, HelpCircle } from "lucide-react";
+import { Leaf } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface TopbarProps {
@@ -7,11 +7,10 @@ interface TopbarProps {
 }
 
 /**
- * Single unified top bar — branding, page title, and account cluster all
- * in one row. No separate sidebar: this app has exactly one feature
- * (Import Leads), so a nav sidebar would imply sections that don't exist.
- * The "GrowEasy Team" text and avatar are static display only — no auth
- * or account switching exists, so there's no dropdown affordance.
+ * Single unified top bar — branding + page title on the left, dark mode
+ * toggle on the right. No help icon or account/team display — neither
+ * a help system nor real auth/accounts exist in this app, so both would
+ * be fake affordances.
  */
 export function Topbar({ title, subtitle }: TopbarProps) {
   return (
@@ -32,23 +31,7 @@ export function Topbar({ title, subtitle }: TopbarProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
-        <ThemeToggle />
-
-        <button
-          className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
-          aria-label="Help"
-        >
-          <HelpCircle size={20} />
-        </button>
-
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-indigo-600 text-white text-xs font-medium flex items-center justify-center">
-            GB
-          </div>
-          <span className="text-sm font-medium text-gray-700 dark:text-slate-200">GrowEasy Team</span>
-        </div>
-      </div>
+      <ThemeToggle />
     </header>
   );
 }
