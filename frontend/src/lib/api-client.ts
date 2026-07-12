@@ -24,6 +24,8 @@ export interface ImportJobStatus {
   totalRows: number;
   totalBatches: number;
   batchesCompleted: number;
+  importedSoFar: number;
+  skippedSoFar: number;
   result?: ImportResult;
   error?: string;
 }
