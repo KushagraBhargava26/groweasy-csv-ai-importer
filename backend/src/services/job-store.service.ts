@@ -9,6 +9,8 @@ export interface ImportJob {
   totalRows: number;
   totalBatches: number;
   batchesCompleted: number;
+  importedSoFar: number;
+  skippedSoFar: number;
   result?: ImportResult;
   error?: string;
   createdAt: number;
@@ -42,6 +44,8 @@ export function createJob(fileName: string, totalRows: number, totalBatches: num
     totalRows,
     totalBatches,
     batchesCompleted: 0,
+    importedSoFar: 0,
+    skippedSoFar: 0,
     createdAt: now,
     updatedAt: now,
   };

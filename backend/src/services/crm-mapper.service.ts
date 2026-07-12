@@ -112,7 +112,7 @@ const RATE_LIMIT_INTERVAL_MS = 4200; // ~14.3 requests/minute, safely under the 
 export async function runCrmImportPipeline(
   rawRows: RawCsvRow[],
   batchSize: number = DEFAULT_BATCH_SIZE,
-  onBatchComplete?: (batchesCompleted: number, totalBatches: number) => void,
+  onBatchComplete?: (batchesCompleted: number, totalBatches: number, importedSoFar: number, skippedSoFar: number) => void,
 ): Promise<ImportResult> {
   const taggedRows = tagRowsWithId(rawRows);
   const batches = createBatches(taggedRows, batchSize);
@@ -171,7 +171,7 @@ export async function runCrmImportPipeline(
       }
     });
 
-    onBatchComplete?.(i + 1, batches.length);
+    onBatchComplete?.(i + 1, batches.length, imported.length, skipped.length);
 
     // Only wait between batches, not after the last one.
     if (i < batches.length - 1) {

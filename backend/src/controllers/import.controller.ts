@@ -51,9 +51,13 @@ async function runImportInBackground(jobId: string, rawRows: Awaited<ReturnType<
   updateJob(jobId, { status: "processing" });
 
   try {
-    const result = await runCrmImportPipeline(rawRows, DEFAULT_BATCH_SIZE, (batchesCompleted, totalBatches) => {
-      updateJob(jobId, { batchesCompleted, totalBatches });
-    });
+    const result = await runCrmImportPipeline(
+      rawRows,
+      DEFAULT_BATCH_SIZE,
+      (batchesCompleted, totalBatches, importedSoFar, skippedSoFar) => {
+        updateJob(jobId, { batchesCompleted, totalBatches, importedSoFar, skippedSoFar });
+      },
+    );
     updateJob(jobId, { status: "completed", result });
   } catch (err) {
     logger.error("Background import job failed", {
@@ -87,6 +91,8 @@ export function getImportStatus(req: Request, res: Response): void {
     totalRows: job.totalRows,
     totalBatches: job.totalBatches,
     batchesCompleted: job.batchesCompleted,
+    importedSoFar: job.importedSoFar,
+    skippedSoFar: job.skippedSoFar,
     result: job.result,
     error: job.error,
   });
