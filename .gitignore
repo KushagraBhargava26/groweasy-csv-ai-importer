@@ -16,3 +16,10 @@ backend/dist/
 # logs
 npm-debug.log*
 *.log
+
+# stray test/debug artifacts — keep test data in test-data/ only
+/adult.csv
+/result.json
+/all-invalid-test.csv
+/empty-test.csv
+/test-multi-contact.csv
