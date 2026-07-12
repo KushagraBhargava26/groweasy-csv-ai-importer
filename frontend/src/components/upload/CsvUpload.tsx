@@ -30,6 +30,7 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
   const [rowCount, setRowCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
+  const [parsingProgress, setParsingProgress] = useState<number | null>(null);
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -46,8 +47,9 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
       }
 
       setIsParsing(true);
+      setParsingProgress(0);
       try {
-        const rows = await parseCsvFile(file);
+        const rows = await parseCsvFile(file, (rowsParsedSoFar) => setParsingProgress(rowsParsedSoFar));
         setFileName(file.name);
         setFileSize(file.size);
         setRowCount(rows.length);
@@ -56,6 +58,7 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
         setError(err instanceof CsvParseError ? err.message : "Something went wrong while reading this file.");
       } finally {
         setIsParsing(false);
+        setParsingProgress(null);
       }
     },
     [onParsed],
@@ -121,7 +124,13 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
             </label>
           </div>
 
-          {isParsing && <p className="text-sm text-gray-500 dark:text-slate-400 mt-4">Reading file…</p>}
+          {isParsing && (
+            <p className="text-sm text-gray-500 dark:text-slate-400 mt-4">
+              {parsingProgress && parsingProgress > 0
+                ? `Reading file… ${parsingProgress.toLocaleString()} rows parsed so far`
+                : "Reading file…"}
+            </p>
+          )}
 
           {fileName && fileSize !== null && !isParsing && !error && (
             <div className="mt-4 flex items-center gap-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-4 py-3">
