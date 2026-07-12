@@ -70,7 +70,7 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
   );
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-8">
+    <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl p-8">
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -79,12 +79,12 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
         className={`border-2 border-dashed rounded-lg p-10 flex flex-col items-center text-center transition-colors ${
-          isDragging ? "border-indigo-500 bg-indigo-50" : "border-gray-300"
+          isDragging ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950" : "border-gray-300 dark:border-slate-600"
         }`}>
         <UploadCloud size={40} className="text-indigo-500 mb-3" />
-        <h3 className="font-medium text-gray-900">Upload your CSV file</h3>
-        <p className="text-sm text-gray-500 mt-1">Drag & drop your file here, or click to browse</p>
-        <p className="text-xs text-gray-400 mt-1">Supports .csv files up to 10MB</p>
+        <h3 className="font-medium text-gray-900 dark:text-white">Upload your CSV file</h3>
+        <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">Drag & drop your file here, or click to browse</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Supports .csv files up to 10MB</p>
 
         <label className="mt-4 cursor-pointer">
           <span className="inline-block bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors">
@@ -94,17 +94,21 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
         </label>
       </div>
 
-      {isParsing && <p className="text-sm text-gray-500 mt-4">Reading file…</p>}
+      {isParsing && <p className="text-sm text-gray-500 dark:text-slate-400 mt-4">Reading file…</p>}
 
       {fileName && !isParsing && !error && (
-        <div className="mt-4 flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
-          <FileText size={18} className="text-gray-500" />
-          <span className="text-sm text-gray-700 flex-1">{fileName}</span>
+        <div className="mt-4 flex items-center gap-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-4 py-3">
+          <FileText size={18} className="text-gray-500 dark:text-slate-400" />
+          <span className="text-sm text-gray-700 dark:text-slate-200 flex-1">{fileName}</span>
           <CheckCircle2 size={18} className="text-green-500" />
         </div>
       )}
 
-      {error && <div className="mt-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
+      {error && (
+        <div className="mt-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-lg px-4 py-3">
+          {error}
+        </div>
+      )}
     </div>
   );
 }
