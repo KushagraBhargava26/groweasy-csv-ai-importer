@@ -41,7 +41,16 @@ export function parseCsvFile(
 
     Papa.parse<RawCsvRow>(file, {
       header: true,
-      worker: true,
+      // NOTE: worker: true was tried and removed — it's a well-documented,
+      // long-standing PapaParse limitation that breaks under bundled
+      // production builds (Next.js/Turbopack, webpack generally), since
+      // the library can't reliably locate its own script to load into a
+      // Worker context once bundled. Worked in local dev, failed on
+      // Vercel's production build. The `step` callback below still gives
+      // real incremental, non-blocking-in-practice parsing (chunked file
+      // reads, not one giant synchronous operation) — just not on a
+      // separate thread. Documented honestly as a real tradeoff, not
+      // silently worked around.
       skipEmptyLines: true,
       transformHeader: (header) => header.trim(),
       transform: (value) => value.trim(),
