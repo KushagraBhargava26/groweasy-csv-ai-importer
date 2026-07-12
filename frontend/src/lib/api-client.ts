@@ -12,13 +12,6 @@ export class ApiError extends Error {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
 
-/**
- * Sends the ORIGINAL CSV file (not the client-parsed rows) to the backend
- * as multipart/form-data. The backend does its own independent parsing —
- * we deliberately don't try to reconstruct CSV text from the already-parsed
- * JSON rows, since that round-trip is lossy (quoting, special characters)
- * and the backend is the authoritative parser anyway.
- */
 export interface ImportJobStatus {
   status: "pending" | "processing" | "completed" | "failed";
   totalRows: number;
@@ -42,13 +35,35 @@ async function parseErrorResponse(response: Response, fallback: string): Promise
 }
 
 /**
- * Kicks off a background import job and returns its id immediately.
- * The caller is responsible for polling getImportStatus() to track
- * progress and retrieve the final result.
+ * Cheap, sheet-names-only call — powers the Excel sheet picker before
+ * any real parsing/AI processing happens.
  */
-export async function startImportJob(file: File): Promise<string> {
+export async function listXlsxSheets(file: File): Promise<string[]> {
   const formData = new FormData();
   formData.append("file", file);
+
+  const response = await fetch(`${API_BASE_URL}/api/import/xlsx-sheets`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response, "Could not read sheets from this Excel file. Please try again.");
+  }
+
+  const data = await response.json();
+  return data.sheetNames;
+}
+
+/**
+ * Kicks off a background import job and returns its id immediately.
+ * sheetName is only relevant (and required by the backend) for .xlsx
+ * uploads — omitted entirely for CSV.
+ */
+export async function startImportJob(file: File, sheetName?: string): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (sheetName) formData.append("sheetName", sheetName);
 
   const response = await fetch(`${API_BASE_URL}/api/import/process`, {
     method: "POST",
@@ -72,20 +87,20 @@ export async function getImportStatus(jobId: string): Promise<ImportJobStatus> {
 
   return response.json();
 }
+
 export interface MappingPreviewResponse {
   totalRows: number;
   sampleResult: ImportResult;
 }
 
 /**
- * Calls the new synchronous sample-mapping endpoint — runs the REAL AI
- * pipeline on just the first 5 rows, fast enough to await directly like
- * a normal request (unlike the full-file job, which requires polling).
- * Powers the AI Mapping review step.
+ * Runs the REAL AI pipeline on a small sample, synchronously. sheetName
+ * is required by the backend for .xlsx files, omitted for CSV.
  */
-export async function previewMapping(file: File): Promise<MappingPreviewResponse> {
+export async function previewMapping(file: File, sheetName?: string): Promise<MappingPreviewResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  if (sheetName) formData.append("sheetName", sheetName);
 
   const response = await fetch(`${API_BASE_URL}/api/import/preview-mapping`, {
     method: "POST",

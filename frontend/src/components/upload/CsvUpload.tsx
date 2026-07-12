@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, Shield, Sparkles, Clock, Lightbulb } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, Shield, Sparkles, Clock, Lightbulb, ArrowRight } from "lucide-react";
 import { parseCsvFile, CsvParseError } from "@/lib/csv-parser";
+import { listXlsxSheets, ApiError } from "@/lib/api-client";
 import { RawCsvRow } from "@/types/crm-record";
 
 interface CsvUploadProps {
   onParsed: (file: File, rows: RawCsvRow[]) => void;
+  onXlsxReady: (file: File, sheetName: string) => void;
 }
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // matches backend's multer limit — reject oversized files before even attempting a parse
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // matches backend's multer limit
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -17,13 +19,19 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isXlsxFile(file: File): boolean {
+  return file.name.toLowerCase().endsWith(".xlsx");
+}
+
 /**
- * Step 1 of the import flow: drag & drop or file-picker upload.
- * Parses the CSV entirely client-side (via parseCsvFile) and hands the
- * resulting rows up to the parent — no network request happens here,
- * per the spec's "no AI processing yet" rule for this step.
+ * Step 1 of the import flow. CSV files are parsed entirely client-side
+ * (unchanged). Excel files skip client-side parsing entirely — there's
+ * no full row-preview table for .xlsx (a deliberate scope cut given time
+ * constraints, not a bug) — instead this fetches just the sheet names
+ * from the backend and, once the user picks one, hands off to the
+ * parent which routes straight into the AI Mapping step.
  */
-export function CsvUpload({ onParsed }: CsvUploadProps) {
+export function CsvUpload({ onParsed, onXlsxReady }: CsvUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState<number | null>(null);
@@ -32,20 +40,13 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
   const [isParsing, setIsParsing] = useState(false);
   const [parsingProgress, setParsingProgress] = useState<number | null>(null);
 
-  const handleFile = useCallback(
+  const [xlsxFile, setXlsxFile] = useState<File | null>(null);
+  const [sheetNames, setSheetNames] = useState<string[] | null>(null);
+  const [selectedSheet, setSelectedSheet] = useState<string>("");
+  const [isFetchingSheets, setIsFetchingSheets] = useState(false);
+
+  const handleCsvFile = useCallback(
     async (file: File) => {
-      setError(null);
-
-      if (!file.name.toLowerCase().endsWith(".csv")) {
-        setError("Only .csv files are supported.");
-        return;
-      }
-
-      if (file.size > MAX_FILE_SIZE_BYTES) {
-        setError("File is too large. Maximum size is 10MB.");
-        return;
-      }
-
       setIsParsing(true);
       setParsingProgress(0);
       try {
@@ -62,6 +63,48 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
       }
     },
     [onParsed],
+  );
+
+  const handleXlsxFile = useCallback(async (file: File) => {
+    setIsFetchingSheets(true);
+    try {
+      const sheets = await listXlsxSheets(file);
+      setXlsxFile(file);
+      setFileName(file.name);
+      setFileSize(file.size);
+      setSheetNames(sheets);
+      setSelectedSheet(sheets[0] ?? "");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong while reading this Excel file.");
+    } finally {
+      setIsFetchingSheets(false);
+    }
+  }, []);
+
+  const handleFile = useCallback(
+    (file: File) => {
+      setError(null);
+      setXlsxFile(null);
+      setSheetNames(null);
+
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        setError("File is too large. Maximum size is 10MB.");
+        return;
+      }
+
+      if (isXlsxFile(file)) {
+        handleXlsxFile(file);
+        return;
+      }
+
+      if (!file.name.toLowerCase().endsWith(".csv")) {
+        setError("Only .csv and .xlsx files are supported.");
+        return;
+      }
+
+      handleCsvFile(file);
+    },
+    [handleCsvFile, handleXlsxFile],
   );
 
   const handleDrop = useCallback(
@@ -85,7 +128,6 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
   return (
     <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl p-8">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-        {/* Decorative illustration — purely visual, no functional claim */}
         <div className="hidden md:flex items-center justify-center">
           <div className="relative w-56 h-56 flex items-center justify-center">
             <div className="absolute inset-0 rounded-full bg-indigo-50 dark:bg-indigo-950" />
@@ -112,27 +154,29 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
               isDragging ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950" : "border-gray-300 dark:border-slate-600"
             }`}>
             <UploadCloud size={32} className="text-indigo-500 mb-3" />
-            <h3 className="font-medium text-gray-900 dark:text-white">Upload your CSV file</h3>
+            <h3 className="font-medium text-gray-900 dark:text-white">Upload your file</h3>
             <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">Drag & drop your file here, or click to browse</p>
-            <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Supports .csv files up to 10MB</p>
+            <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Supports .csv and .xlsx files up to 10MB</p>
 
             <label className="mt-4 cursor-pointer">
               <span className="inline-block bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors">
                 Choose File
               </span>
-              <input type="file" accept=".csv" className="hidden" onChange={handleFileInputChange} />
+              <input type="file" accept=".csv,.xlsx" className="hidden" onChange={handleFileInputChange} />
             </label>
           </div>
 
-          {isParsing && (
+          {(isParsing || isFetchingSheets) && (
             <p className="text-sm text-gray-500 dark:text-slate-400 mt-4">
-              {parsingProgress && parsingProgress > 0
-                ? `Reading file… ${parsingProgress.toLocaleString()} rows parsed so far`
-                : "Reading file…"}
+              {isFetchingSheets
+                ? "Reading workbook…"
+                : parsingProgress && parsingProgress > 0
+                  ? `Reading file… ${parsingProgress.toLocaleString()} rows parsed so far`
+                  : "Reading file…"}
             </p>
           )}
 
-          {fileName && fileSize !== null && !isParsing && !error && (
+          {fileName && fileSize !== null && !isParsing && !isFetchingSheets && !error && (
             <div className="mt-4 flex items-center gap-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-4 py-3">
               <div className="w-9 h-9 rounded-lg bg-green-600 flex items-center justify-center shrink-0">
                 <FileSpreadsheet size={18} className="text-white" />
@@ -149,6 +193,32 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
             <p className="text-sm text-indigo-600 dark:text-indigo-400 font-medium mt-3 text-right">
               {rowCount.toLocaleString()} rows detected
             </p>
+          )}
+
+          {xlsxFile && sheetNames && sheetNames.length > 0 && (
+            <div className="mt-4 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-2">
+                {sheetNames.length > 1 ? "Select a sheet to import" : "Sheet to import"}
+              </label>
+              <select
+                value={selectedSheet}
+                onChange={(e) => setSelectedSheet(e.target.value)}
+                disabled={sheetNames.length === 1}
+                className="w-full text-sm bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 text-gray-700 dark:text-slate-200 disabled:opacity-70">
+                {sheetNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => onXlsxReady(xlsxFile, selectedSheet)}
+                disabled={!selectedSheet}
+                className="mt-3 w-full flex items-center justify-center gap-2 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                Continue with this sheet
+                <ArrowRight size={16} />
+              </button>
+            </div>
           )}
 
           {error && (
@@ -180,8 +250,7 @@ export function CsvUpload({ onParsed }: CsvUploadProps) {
       <div className="flex items-start gap-3 mt-6 bg-indigo-50 dark:bg-indigo-950 rounded-lg px-4 py-3">
         <Lightbulb size={18} className="text-indigo-500 shrink-0 mt-0.5" />
         <p className="text-sm text-indigo-900 dark:text-indigo-200">
-          <span className="font-medium">Tips:</span> Ensure your file is in CSV format. First row should contain column headers for best
-          results.
+          <span className="font-medium">Tips:</span> Ensure your file has column headers in the first row for best results.
         </p>
       </div>
     </div>

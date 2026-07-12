@@ -1,7 +1,7 @@
 import { Download } from "lucide-react";
 import { ImportResult } from "@/types/crm-record";
 import { ImportSummaryPanel } from "@/components/shared/ImportSummaryPanel";
-import { downloadImportedCsv, downloadSkippedCsv } from "@/lib/sample-csv";
+import { downloadImportedCsv, downloadSkippedCsv, downloadImportedJson, downloadSkippedJson } from "@/lib/sample-csv";
 
 interface ImportResultsViewProps {
   result: ImportResult;
@@ -33,6 +33,12 @@ export function ImportResultsView({ result, onStartOver }: ImportResultsViewProp
               className="flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shrink-0">
               <Download size={16} />
               Download CRM CSV
+            </button>
+            <button
+              onClick={() => downloadImportedJson(result.imported)}
+              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shrink-0">
+              <Download size={16} />
+              Download CRM JSON
             </button>
           </div>
           <div className="overflow-auto max-h-[420px]">
@@ -74,6 +80,12 @@ export function ImportResultsView({ result, onStartOver }: ImportResultsViewProp
               className="flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shrink-0">
               <Download size={16} />
               Download Skipped CSV
+            </button>
+            <button
+              onClick={() => downloadSkippedJson(result.skipped)}
+              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shrink-0">
+              <Download size={16} />
+              Download Skipped JSON
             </button>
           </div>
           <div className="overflow-auto max-h-[320px]">

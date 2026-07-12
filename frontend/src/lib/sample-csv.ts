@@ -89,3 +89,35 @@ function triggerCsvDownload(csvContent: string, fileName: string): void {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+function triggerJsonDownload(jsonContent: string, fileName: string): void {
+  const blob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Downloads the real imported records as JSON — same underlying data as
+ * downloadImportedCsv, just serialized differently for users who want to
+ * pipe the output into another tool/script rather than open it in a
+ * spreadsheet.
+ */
+export function downloadImportedJson(records: CrmRecord[]): void {
+  const jsonContent = JSON.stringify(records, null, 2);
+  triggerJsonDownload(jsonContent, "groweasy-imported-records.json");
+}
+
+/**
+ * Downloads the skipped rows as JSON — same data as downloadSkippedCsv
+ * (original raw row + skip reason), just serialized as JSON.
+ */
+export function downloadSkippedJson(skipped: SkippedRow[]): void {
+  if (skipped.length === 0) return;
+  const jsonContent = JSON.stringify(skipped, null, 2);
+  triggerJsonDownload(jsonContent, "groweasy-skipped-records.json");
+}

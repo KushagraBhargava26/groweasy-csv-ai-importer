@@ -16,6 +16,7 @@ type Step = "upload" | "preview" | "mapping" | "review" | "processing" | "result
 export default function Home() {
   const [step, setStep] = useState<Step>("upload");
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [sheetName, setSheetName] = useState<string | undefined>(undefined);
   const [rows, setRows] = useState<RawCsvRow[]>([]);
   const [mappingPreview, setMappingPreview] = useState<MappingPreviewResponse | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -26,19 +27,25 @@ export default function Home() {
 
   function handleParsed(file: File, parsedRows: RawCsvRow[]) {
     setCsvFile(file);
+    setSheetName(undefined);
     setRows(parsedRows);
+    setMappingPreview(null);
     setSubmitError(null);
     setStep("preview");
   }
 
-  // Step 2 -> 3: run the real AI pipeline on a small sample so the user
-  // can sanity-check mapping quality before committing to the full job.
-  async function handleRequestMappingPreview() {
-    if (!csvFile) return;
-    setIsFetchingPreview(true);
+  // Excel path: no client-side row preview exists, so this jumps straight
+  // from Upload into the AI Mapping step, using previewMapping's own
+  // totalRows as the row count (there's no separately-parsed rows array
+  // for xlsx files).
+  async function handleXlsxReady(file: File, selectedSheet: string) {
+    setCsvFile(file);
+    setSheetName(selectedSheet);
+    setRows([]);
     setSubmitError(null);
+    setIsFetchingPreview(true);
     try {
-      const preview = await previewMapping(csvFile);
+      const preview = await previewMapping(file, selectedSheet);
       setMappingPreview(preview);
       setStep("mapping");
     } catch (err) {
@@ -50,35 +57,42 @@ export default function Home() {
     }
   }
 
-  // Step 3 -> 4: no async work here, just moving to the review checkpoint.
+  async function handleRequestMappingPreview() {
+    if (!csvFile) return;
+    setIsFetchingPreview(true);
+    setSubmitError(null);
+    try {
+      const preview = await previewMapping(csvFile, sheetName);
+      setMappingPreview(preview);
+      setStep("mapping");
+    } catch (err) {
+      setSubmitError(
+        err instanceof ApiError ? err.message : "Something went wrong while generating the mapping preview. Please try again.",
+      );
+    } finally {
+      setIsFetchingPreview(false);
+    }
+  }
+
   function handleContinueToReview() {
     setStep("review");
   }
 
-  // Step 3 -> new "confirm without preview" path: no async work, just
-  // skips straight to the review checkpoint without ever calling the AI.
-  // This is the literal-spec-compliant path — no AI runs until this
-  // point, and clicking "Confirm & Start Import" on the NEXT screen is
-  // the actual confirmation that triggers the real (full-file) AI call.
   function handleSkipToReview() {
     setMappingPreview(null);
     setStep("review");
   }
 
-  // Goes back to wherever the user came from — "mapping" if they'd
-  // generated a preview, "preview" (the raw CSV screen) if they skipped
-  // straight to review.
   function handleBackFromReview() {
     setStep(mappingPreview ? "mapping" : "preview");
   }
 
-  // Step 4 -> 5: this is what actually kicks off the full background job.
   async function handleConfirmImport() {
     if (!csvFile) return;
     setIsStartingImport(true);
     setSubmitError(null);
     try {
-      const id = await startImportJob(csvFile);
+      const id = await startImportJob(csvFile, sheetName);
       setJobId(id);
       setStep("processing");
     } catch (err) {
@@ -100,6 +114,7 @@ export default function Home() {
 
   function handleStartOver() {
     setCsvFile(null);
+    setSheetName(undefined);
     setRows([]);
     setMappingPreview(null);
     setResult(null);
@@ -109,10 +124,11 @@ export default function Home() {
   }
 
   const indicatorStep: FlowStep = step === "processing" ? "review" : step;
+  const totalRowsForProcessing = mappingPreview?.totalRows ?? rows.length;
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-slate-950">
-      <Topbar title="Import Leads" subtitle="Upload CSV and let AI extract lead information" />
+      <Topbar title="Import Leads" subtitle="Upload a file and let AI extract lead information" />
       <div className="p-8 max-w-6xl mx-auto space-y-4">
         <StepIndicator currentStep={indicatorStep} />
 
@@ -122,7 +138,7 @@ export default function Home() {
           </div>
         )}
 
-        {step === "upload" && <CsvUpload onParsed={handleParsed} />}
+        {step === "upload" && <CsvUpload onParsed={handleParsed} onXlsxReady={handleXlsxReady} />}
 
         {step === "preview" && csvFile && (
           <CsvPreviewTable
@@ -153,7 +169,7 @@ export default function Home() {
         {step === "processing" && csvFile && jobId && (
           <ProcessingView
             fileName={csvFile.name}
-            rowCount={rows.length}
+            rowCount={totalRowsForProcessing}
             jobId={jobId}
             onComplete={handleJobComplete}
             onError={handleJobError}
