@@ -16,17 +16,21 @@ function csvFileFilter(
   const isCsvMimeType = file.mimetype === "text/csv" || file.mimetype === "application/vnd.ms-excel";
   const isCsvExtension = file.originalname.toLowerCase().endsWith(".csv");
 
-  // Check extension too, not just mimetype: browsers are inconsistent
-  // about what mimetype they report for CSVs (some send
-  // "application/octet-stream" for a perfectly valid .csv file).
-  if (isCsvMimeType || isCsvExtension) {
+  // .xlsx mimetype is the same regardless of what OS/browser sends it —
+  // unlike CSV, this one's actually consistent. Still check extension too,
+  // for the same reason as CSV: some browsers send "application/octet-stream"
+  // for valid files.
+  const isXlsxMimeType = file.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const isXlsxExtension = file.originalname.toLowerCase().endsWith(".xlsx");
+
+  if (isCsvMimeType || isCsvExtension || isXlsxMimeType || isXlsxExtension) {
     callback(null, true);
   } else {
-    callback(new Error("Only .csv files are accepted"));
+    callback(new Error("Only .csv and .xlsx files are accepted"));
   }
 }
 
-export const csvUpload = multer({
+export const fileUpload = multer({
   storage,
   fileFilter: csvFileFilter,
   limits: { fileSize: MAX_FILE_SIZE_BYTES },
