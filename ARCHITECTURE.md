@@ -2,8 +2,9 @@
 
 This document describes how the GrowEasy CSV/Excel AI Importer is put together: the two applications, how they communicate, the shape of the backend pipeline, and the data model that flows through it.
 
-## 1. System overview
+**Live deployment:** [Frontend](https://groweasy-frontend-beta.vercel.app) · [Backend health check](https://groweasy-backend-8p8t.onrender.com/health)
 
+## 1. System overview
 The system is a two-tier application:
 
 ```
