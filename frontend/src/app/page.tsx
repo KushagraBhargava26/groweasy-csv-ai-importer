@@ -68,7 +68,11 @@ export default function Home() {
     <main className="min-h-screen bg-gray-50 dark:bg-slate-950">
       <Topbar title="Import Leads" subtitle="Upload CSV and let AI extract lead information" />
       <div className="p-8 max-w-6xl mx-auto space-y-4">
-        {submitError && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{submitError}</div>}
+        {submitError && (
+          <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-lg px-4 py-3">
+            {submitError}
+          </div>
+        )}
         {step === "upload" && <CsvUpload onParsed={handleParsed} />}
         {step === "preview" && csvFile && (
           <CsvPreviewTable rows={rows} fileName={csvFile.name} onConfirm={handleConfirm} isSubmitting={isSubmitting} />

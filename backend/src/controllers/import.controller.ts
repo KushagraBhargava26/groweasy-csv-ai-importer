@@ -7,13 +7,6 @@ import { logger } from "../utils/logger";
 
 /**
  * POST /api/import/process
- * Expects a multipart/form-data request with a single file field named "file".
- * Wrapped so any thrown error (from parseCsv, from the AI pipeline, from
- * anywhere) is forwarded to Express's error-handling middleware via next(),
- * rather than crashing the process or leaving the request hanging.
- */
-/**
- * POST /api/import/process
  * Now runs as a background job instead of blocking the request: parses
  * the CSV, creates a job, kicks off processing WITHOUT awaiting it, and
  * returns the jobId immediately. The row-count cap is gone — the old
@@ -73,6 +66,7 @@ async function runImportInBackground(jobId: string, rawRows: Awaited<ReturnType<
     });
   }
 }
+
 /**
  * GET /api/import/status/:jobId
  * Returns the current state of a background import job: still processing
@@ -96,4 +90,46 @@ export function getImportStatus(req: Request, res: Response): void {
     result: job.result,
     error: job.error,
   });
+}
+
+const SAMPLE_SIZE = 5;
+
+/**
+ * POST /api/import/preview-mapping
+ * Runs the REAL AI extraction pipeline, but only on the first few rows,
+ * synchronously — small enough to stay well within a normal request/
+ * response cycle, unlike the full-file job which runs in the background.
+ * This powers the "AI Mapping" review step: the user sees actual mapped
+ * output before committing to processing the entire file.
+ */
+export async function previewMapping(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: "No file uploaded. Expected a 'file' field." });
+      return;
+    }
+
+    const rawCsvText = req.file.buffer.toString("utf-8");
+    const rawRows = parseCsv(rawCsvText);
+    const sampleRows = rawRows.slice(0, SAMPLE_SIZE);
+
+    logger.info("Running AI mapping preview on sample", {
+      fileName: req.file.originalname,
+      totalRows: rawRows.length,
+      sampleSize: sampleRows.length,
+    });
+
+    // Reuses the exact same pipeline as the real import — same prompt,
+    // same schema, same validation — just on a handful of rows so it's
+    // genuinely representative of what the full run will produce, not a
+    // simplified or faked preview.
+    const sampleResult = await runCrmImportPipeline(sampleRows, sampleRows.length);
+
+    res.status(200).json({
+      totalRows: rawRows.length,
+      sampleResult,
+    });
+  } catch (err) {
+    next(err);
+  }
 }
