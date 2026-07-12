@@ -374,16 +374,3 @@ Additional edge-case files at the project root: `empty-test.csv` (empty file), `
 **Uploaded file is rejected**
 → Only `.csv` files up to 10MB are accepted. Check the file extension and size.
 
----
-
-## Useful links
-
-- [Next.js documentation](https://nextjs.org/docs)
-- [Express documentation](https://expressjs.com/)
-- [Google AI Studio](https://aistudio.google.com/apikey) — get a Gemini API key
-- [Gemini API documentation](https://ai.google.dev/gemini-api/docs)
-- [`@google/genai` SDK](https://www.npmjs.com/package/@google/genai)
-- [Zod documentation](https://zod.dev/)
-- [PapaParse documentation](https://www.papaparse.com/docs)
-- [Vitest documentation](https://vitest.dev/)
-- [Tailwind CSS documentation](https://tailwindcss.com/docs)
