@@ -11,7 +11,9 @@
 - [6. State and Persistence](#6-state-and-persistence)
 - [7. Cross-cutting Concerns](#7-cross-cutting-concerns)
 - [8. Containerization](#8-containerization)
-  **Live deployment:** [Frontend](https://groweasy-frontend-beta.vercel.app) · [Backend health check](https://groweasy-backend-8p8t.onrender.com/health)
+
+  **Live deployment:** 
+  [Frontend](https://groweasy-frontend-beta.vercel.app) · [Backend health check](https://groweasy-backend-8p8t.onrender.com/health)
 
 ## 1. System overview
 
@@ -309,7 +311,6 @@ Both services ship with multi-stage Dockerfiles — a build stage that installs 
 One nuance specific to the frontend image: `NEXT_PUBLIC_API_BASE_URL` is inlined into the client JavaScript bundle at `next build` time, not read at container-start time — so it must be passed as a Docker **build argument**, not a runtime environment variable, or the built app silently falls back to its `localhost:5000` default regardless of what's passed to `docker run`.
 
 <p align="right">(<a href="#table-of-contents">Back to top ↑</a>)</p>
----
 
 ## Related Documentation
 
