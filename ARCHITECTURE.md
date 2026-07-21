@@ -1,10 +1,20 @@
-# Architecture
+> [!NOTE]
+> This document focuses on the internal architecture of the application. For setup instructions and project overview, see the main README.
 
-This document describes how the GrowEasy CSV/Excel AI Importer is put together: the two applications, how they communicate, the shape of the backend pipeline, and the data model that flows through it.
+## Table of Contents
 
-**Live deployment:** [Frontend](https://groweasy-frontend-beta.vercel.app) · [Backend health check](https://groweasy-backend-8p8t.onrender.com/health)
+- [1. System Overview](#1-system-overview)
+- [2. Request Flow](#2-request-flow-end-to-end)
+- [3. Frontend Architecture](#3-frontend-architecture)
+- [4. Backend Architecture](#4-backend-architecture)
+- [5. Data Model](#5-data-model)
+- [6. State and Persistence](#6-state-and-persistence)
+- [7. Cross-cutting Concerns](#7-cross-cutting-concerns)
+- [8. Containerization](#8-containerization)
+  **Live deployment:** [Frontend](https://groweasy-frontend-beta.vercel.app) · [Backend health check](https://groweasy-backend-8p8t.onrender.com/health)
 
 ## 1. System overview
+
 The system is a two-tier application:
 
 ```
@@ -25,6 +35,8 @@ The system is a two-tier application:
 - The **backend** is an Express API that owns all file parsing (CSV or Excel), batching, AI calls, and validation, and holds in-memory state only for tracking background job progress.
 - The **AI provider** is Google Gemini, called once per batch of rows via the `@google/genai` SDK, with a structured JSON response schema.
 - Both services also ship as Docker images (see §8) — same code, same behavior, just packaged as containers.
+
+<p align="right">(<a href="#table-of-contents">Back to top ↑</a>)</p>
 
 ## 2. Request flow (end to end)
 
@@ -84,6 +96,8 @@ The system is a two-tier application:
   │                       │        ... same as CSV from here on ...
 ```
 
+<p align="right">(<a href="#table-of-contents">Back to top ↑</a>)</p>
+
 ## 3. Frontend architecture
 
 **Stack:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4.
@@ -96,18 +110,20 @@ upload → preview → mapping → review → processing → results
 
 For Excel files, `preview` is skipped entirely — the upload step's sheet picker leads straight into `mapping`.
 
-| Step | Component | Responsibility |
-|---|---|---|
-| `upload` | `components/upload/CsvUpload.tsx` | File picker (CSV or Excel). For CSV: client-side parse (`lib/csv-parser.ts`) for the raw preview. For Excel: fetches sheet names (`listXlsxSheets()`) and shows a sheet picker — no client-side spreadsheet parsing exists |
-| `preview` | `components/preview/CsvPreviewTable.tsx` | Shows the raw parsed CSV rows as a virtualized table, with column visibility toggle and an example-schema CSV download. CSV only — Excel skips this step |
-| `mapping` | `components/mapping/AiMappingPreview.tsx` | Displays the AI's mapping of a 5-row sample, fetched via `previewMapping()` |
-| `review` | `components/mapping/ReviewConfirm.tsx` | Final confirmation checkpoint before the full run |
-| `processing` | `components/preview/ProcessingView.tsx` + `components/shared/ImportSummaryPanel.tsx` | Polls job status; shows live batch progress plus real, running imported/skipped counts (not simulated) |
-| `results` | `components/results/ImportResultsView.tsx` + `components/shared/ImportSummaryPanel.tsx` | Final imported/skipped summary, plus CSV downloads for both |
+| Step         | Component                                                                               | Responsibility                                                                                                                                                                                                             |
+| ------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload`     | `components/upload/CsvUpload.tsx`                                                       | File picker (CSV or Excel). For CSV: client-side parse (`lib/csv-parser.ts`) for the raw preview. For Excel: fetches sheet names (`listXlsxSheets()`) and shows a sheet picker — no client-side spreadsheet parsing exists |
+| `preview`    | `components/preview/CsvPreviewTable.tsx`                                                | Shows the raw parsed CSV rows as a virtualized table, with column visibility toggle and an example-schema CSV download. CSV only — Excel skips this step                                                                   |
+| `mapping`    | `components/mapping/AiMappingPreview.tsx`                                               | Displays the AI's mapping of a 5-row sample, fetched via `previewMapping()`                                                                                                                                                |
+| `review`     | `components/mapping/ReviewConfirm.tsx`                                                  | Final confirmation checkpoint before the full run                                                                                                                                                                          |
+| `processing` | `components/preview/ProcessingView.tsx` + `components/shared/ImportSummaryPanel.tsx`    | Polls job status; shows live batch progress plus real, running imported/skipped counts (not simulated)                                                                                                                     |
+| `results`    | `components/results/ImportResultsView.tsx` + `components/shared/ImportSummaryPanel.tsx` | Final imported/skipped summary, plus CSV downloads for both                                                                                                                                                                |
 
 Shared layout pieces live in `components/layout/` (`Topbar` — a single unified top bar, no separate sidebar; `StepIndicator`; `ThemeToggle`), and theme state is provided by `contexts/ThemeContext.tsx`.
 
 All backend communication is centralized in `lib/api-client.ts`, which exposes: `listXlsxSheets`, `startImportJob`, `getImportStatus`, `previewMapping` — the latter three now optionally accept a `sheetName` argument, used only for Excel uploads. Types in `src/types/crm-record.ts` mirror the backend's types (plus one frontend-only addition, `CRM_FIELDS`, used to generate accurate CSV exports) so the two stay structurally compatible.
+
+<p align="right">(<a href="#table-of-contents">Back to top ↑</a>)</p>
 
 ## 4. Backend architecture
 
@@ -139,13 +155,13 @@ utils/           logger.ts                → structured logging
 
 ### 4.2 Routes
 
-| Method | Path | Controller | Behavior |
-|---|---|---|---|
-| `GET` | `/health` | inline in `app.ts` | Liveness check |
-| `POST` | `/api/import/xlsx-sheets` | `listXlsxSheets` | Returns sheet names in an uploaded `.xlsx` workbook — no row parsing, no AI |
-| `POST` | `/api/import/process` | `processImport` | Starts a background job, returns `202` + `jobId`. Accepts an optional `sheetName` field (required for `.xlsx`) |
-| `GET` | `/api/import/status/:jobId` | `getImportStatus` | Returns job progress (including live `importedSoFar`/`skippedSoFar`) or the final result |
-| `POST` | `/api/import/preview-mapping` | `previewMapping` | Synchronous AI run on a 5-row sample. Also accepts an optional `sheetName` |
+| Method | Path                          | Controller         | Behavior                                                                                                       |
+| ------ | ----------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/health`                     | inline in `app.ts` | Liveness check                                                                                                 |
+| `POST` | `/api/import/xlsx-sheets`     | `listXlsxSheets`   | Returns sheet names in an uploaded `.xlsx` workbook — no row parsing, no AI                                    |
+| `POST` | `/api/import/process`         | `processImport`    | Starts a background job, returns `202` + `jobId`. Accepts an optional `sheetName` field (required for `.xlsx`) |
+| `GET`  | `/api/import/status/:jobId`   | `getImportStatus`  | Returns job progress (including live `importedSoFar`/`skippedSoFar`) or the final result                       |
+| `POST` | `/api/import/preview-mapping` | `previewMapping`   | Synchronous AI run on a 5-row sample. Also accepts an optional `sheetName`                                     |
 
 ### 4.3 The import pipeline (`crm-mapper.service.ts`)
 
@@ -221,10 +237,12 @@ An in-memory `Map<string, ImportJob>` backing the background-job endpoints:
 - `upload-limits.ts` — Multer configured with in-memory storage, a 10MB file size cap, and a filter accepting both `.csv` and `.xlsx` (by MIME type or extension). Exported as `fileUpload` (not CSV-specific, despite the historical name still showing up in some older comments/docs).
 - `error-handler.ts` — the single place that maps thrown errors (`CsvParseError`, `XlsxParseError`, Multer's file-type error, `AiExtractionError` by `kind`, anything else) to HTTP status codes and a uniform `{ error: string }` response body. Registered last in `app.ts` so it catches errors from every route.
 
+<p align="right">(<a href="#table-of-contents">Back to top ↑</a>)</p>
+
 ## 5. Data model
 
 ```ts
-type RawCsvRow = Record<string, string>;   // arbitrary columns, all values as strings — same shape whether the source was CSV or Excel
+type RawCsvRow = Record<string, string>; // arbitrary columns, all values as strings — same shape whether the source was CSV or Excel
 
 interface CrmRecord {
   created_at?: string;
@@ -261,6 +279,8 @@ interface ImportResult {
 
 `crm_status` and `data_source` are closed vocabularies enforced both at the TypeScript type level and at runtime via Zod — any value outside the list is stripped by the validation layer, regardless of what the AI returns.
 
+<p align="right">(<a href="#table-of-contents">Back to top ↑</a>)</p>
+
 ## 6. State and persistence
 
 The system holds no database and no disk-persisted state:
@@ -269,11 +289,15 @@ The system holds no database and no disk-persisted state:
 - Background job state, including live progress counters, lives only in the backend process's memory (`job-store.service.ts`) and does not survive a server restart.
 - All CRM data (imported and skipped rows) is returned directly to the client in the API response — the frontend is the only place results are displayed or exported from.
 
+<p align="right">(<a href="#table-of-contents">Back to top ↑</a>)</p>
+
 ## 7. Cross-cutting concerns
 
 - **Logging:** a single `logger` utility (`utils/logger.ts`) used throughout the backend for structured info/warn/error logs (file parsing outcomes, batch progress, Gemini errors, pipeline completion).
 - **CORS:** configured in `app.ts` via the `FRONTEND_URL` environment variable, restricting which origin can call the API.
 - **Error handling:** centralized in `error-handler.ts`, so controllers and services can simply throw typed errors and never need to construct HTTP responses themselves.
+
+<p align="right">(<a href="#table-of-contents">Back to top ↑</a>)</p>
 
 ## 8. Containerization
 
@@ -283,3 +307,12 @@ Both services ship with multi-stage Dockerfiles — a build stage that installs 
 - **Frontend:** uses Next.js's `output: "standalone"` build mode to produce a minimal self-contained server, rather than shipping the full `node_modules` tree. Runs as a non-root user.
 
 One nuance specific to the frontend image: `NEXT_PUBLIC_API_BASE_URL` is inlined into the client JavaScript bundle at `next build` time, not read at container-start time — so it must be passed as a Docker **build argument**, not a runtime environment variable, or the built app silently falls back to its `localhost:5000` default regardless of what's passed to `docker run`.
+
+<p align="right">(<a href="#table-of-contents">Back to top ↑</a>)</p>
+---
+
+## Related Documentation
+
+- [README.md](README.md) — Project overview and setup
+- [ENGINEERING.md](ENGINEERING.md) — Design decisions and trade-offs
+- [API.md](API.md) — REST API reference
